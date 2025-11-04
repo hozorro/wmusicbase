@@ -1,0 +1,32 @@
+# Core
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+sqlalchemy>=2.0.0
+python-dotenv>=1.0.0
+pydantic-settings>=2.0.0
+
+# Database (choose one)
+asyncpg>=0.29.0          # for PostgreSQL (recommended)
+aiosqlite>=0.20.0      # for SQLite (uncomment if needed)
+
+# Music metadata
+mutagen>=1.47.0
+pypinyin>=0.50.0
+
+# File monitoring
+watchdog>=3.0.0
+
+# Image & file handling
+Pillow>=10.0.0
+python-magic>=0.4.27
+
+# Security
+bcrypt>=4.0.0
+
+# Optional: DB migrations
+alembic>=1.13.0
+
+# Dev (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0

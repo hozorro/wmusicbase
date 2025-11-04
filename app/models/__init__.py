@@ -1,0 +1,46 @@
+# -*- encoding: utf-8 -*-
+'''
+@File      :   __init__.py
+@Time      :   2025/10/18 21:42:23
+@Author    :   enauvy
+@Version   :   1.0
+@Copyright :   ©2018-2025 WEYECO <enauvy@qq.com>
+@Desc      :   models init file
+'''
+
+
+from sqlalchemy import func
+from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
+from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from datetime import datetime
+
+class Base(AsyncAttrs, DeclarativeBase):
+    """异步兼容的基类"""
+    pass
+
+class DateTimeMixin:
+    """时间戳字段混入模型"""
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        insert_sentinel=False,
+        nullable=False,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        insert_sentinel=False,
+        nullable=False,
+        index=True,
+    )
+
+from .folder import Folder
+from .track import Track, track_artists, track_genres
+from .artist import Artist
+from .album import Album
+from .genre import Genre
+from .user import User
+from .playback import Playlist, TrackHit, TrackFav, ArtistFav, PlaylistTrack
