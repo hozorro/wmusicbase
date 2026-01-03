@@ -11,10 +11,13 @@
 
 from fastapi import APIRouter, Depends
 from app.core.deps import require_admin
-from . import scan, dashboard, upload
+from . import scan, dashboard, upload, edit, backup, log
 
 admin_router = APIRouter(dependencies=[Depends(require_admin)])
 
 admin_router.include_router(scan.router, prefix='/scan', tags=['admin_scan'])
 admin_router.include_router(dashboard.router, prefix='/dashboard', tags=['admin_dashboard'])
 admin_router.include_router(upload.router, prefix='/upload', tags=['admin_upload'])
+admin_router.include_router(edit.router, prefix='/edit', tags=['admin_edit'])
+admin_router.include_router(backup.router, prefix='/backup', tags=['admin_backup'])
+admin_router.include_router(log.router, prefix='/log', tags=['admin_log'])

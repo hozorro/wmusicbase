@@ -10,23 +10,19 @@
 
 
 from fastapi import APIRouter, BackgroundTasks, Depends
-from app.core.config import settings
 from app.core.state import system_state
-from app.core.deps import require_admin
+from app.core.deps import require_admin, SettingsDep
+from app.core.logger import logger
 from app.services.scanner import cancel_scan, scan_music_library
 from app.background.watcher import start_watcher, stop_watcher
 from app.models.user import User
 from app.schemas.common import ResponseModel
 from app.schemas.sysinfo import ScanInfo
-from typing import Any
 
-import logging
-
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post('/start', response_model=ResponseModel[None])
-async def trigger_scan(background_tasks: BackgroundTasks, current_user: User = Depends(require_admin)):
+async def trigger_scan(background_tasks: BackgroundTasks, settings: SettingsDep, current_user: User = Depends(require_admin)):
     background_tasks.add_task(scan_music_library, settings.MUSIC_LIBRARY_PATH)
     logger.info(f"{current_user.username} started the scanner in background.")
     return ResponseModel(code=200, msg='ok', data=None)

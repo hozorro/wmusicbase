@@ -9,43 +9,25 @@
 '''
 
 
+from asyncache import cached
 import psutil, platform
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, __version__ as fastapi_version
+from fastapi import APIRouter, __version__ as fastapi_version, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from app.core.db import get_db
-from app.core.deps import require_admin
+from app.core.cache import lru_cache
+from app.core.deps import DbDep, AdminDep
 from app.core.config import settings
 from app.core.state import system_state
-from app.models import Track, Album, Artist, Folder, Genre, Playlist, track_artists, TrackHit, User
+from app.models import Track, Album, Artist, Folder, Genre, Playlist, track_artists, TrackHit
+from app.services.sync import Syncer
 from app.schemas.common import ResponseModel
 from app.schemas.sysinfo import DashboardInfo
-from typing import Any
 
 router = APIRouter()
 
-#============ 缓存管理 ============
-_STATS_CACHE = {}
-_STATS_CACHE_TIME = {}
-
-def _get_cached(key: str, ttl_seconds: int = 30):
-    now = datetime.now(timezone.utc)
-    if key in _STATS_CACHE and now - _STATS_CACHE_TIME[key] < timedelta(seconds=ttl_seconds):
-        return _STATS_CACHE[key]
-    return None
-
-def _set_cache(key: str, value: Any):
-    _STATS_CACHE[key] = value
-    _STATS_CACHE_TIME[key] = datetime.now(timezone.utc)
-
-#============= 统计查询 ============
+#============= basic statistics ============
 async def _get_basic_stats(db: AsyncSession):
-    cacke_key = 'basic_stats'
-    cached = _get_cached(cacke_key, ttl_seconds=60)
-    if cached: 
-        return cached
-
     track_count = await db.scalar(select(func.count(Track.id)).where(Track.is_deleted == False))
     album_count = await db.scalar(select(func.count(Album.id)))
     artist_count = await db.scalar(select(func.count(Artist.id)))
@@ -78,15 +60,9 @@ async def _get_basic_stats(db: AsyncSession):
         'artist_tracks_stats': [{'id': a.id, 'name': a.name, 'track_count': a.track_count} for a in artists_tracks_count],
         'latest_added_tracks_stats': [{'id': t.id, 'title': t.title, 'created_at': t.created_at} for t in latest_added_tracks],
     }
-    _set_cache(cacke_key, stats)
     return stats
-
+#============= playback statistics ============
 async def _get_playback_stats(db: AsyncSession):
-    cacke_key = 'playback_stats'
-    cached = _get_cached(cacke_key, ttl_seconds=60)
-    if cached: 
-        return cached
-
     recent = await db.execute(
         select(Track.id, Track.title)
         .join(TrackHit)
@@ -111,13 +87,13 @@ async def _get_playback_stats(db: AsyncSession):
         'recent_tracks': [{'id': t.id, 'title': t.title} for t in recent],
         'top_artists': [{'id': a.id, 'name': a.name, 'play_count': a.play_count} for a in top_played_artists],
     }
-    _set_cache(cacke_key, stats)
     return stats
 
 @router.get('/stats', response_model=ResponseModel[DashboardInfo])
+@cached(lru_cache)
 async def get_dashboard_stats(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    db: DbDep,
+    current_user: AdminDep
 ):
     if system_state.is_scanning:
         return ResponseModel(
@@ -133,10 +109,10 @@ async def get_dashboard_stats(
                 'scan_info': {}
             }
         )
-    # 基础统计
-    basic_stats =await _get_basic_stats(db)
+    # basic stats
+    basic_stats = await _get_basic_stats(db)
     playback_stats = await _get_playback_stats(db)
-    # 系统信息
+    # system info
     uptime = datetime.now(timezone.utc) - datetime.fromtimestamp(psutil.boot_time(), timezone.utc)
     system_info = {
         'system': platform.system(),
@@ -144,12 +120,12 @@ async def get_dashboard_stats(
         'fastapi_version': fastapi_version,
         'server_uptime': str(timedelta(seconds=int(uptime.total_seconds())))
     }
-    # Watcher状态
+    # watcher status
     watcher_info = {
         'is_running': system_state.is_watcher_running,
         'watcher_path': str(settings.MUSIC_LIBRARY_PATH)
     }
-    # 扫描状态
+    # scanning status
     scan_info = {
         'is_running': system_state.is_scanning,
         'progress': system_state.scan_progress
@@ -167,3 +143,9 @@ async def get_dashboard_stats(
             'scan_info': scan_info
         })
     )
+
+@router.post('/initializemeta', response_model=ResponseModel[None])
+async def initialize_meta(db: DbDep):
+    syncer = Syncer(db, settings)
+    await syncer.initialize_sync_meta()
+    return ResponseModel(code=200, msg='ok')

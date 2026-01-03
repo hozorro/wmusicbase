@@ -25,8 +25,8 @@ class Folder(Base, DateTimeMixin):
     parent_id: Mapped[int | None] = mapped_column(ForeignKey('folders.id'))
     
     parent: Mapped[Optional['Folder']] = relationship('Folder', remote_side=[id], back_populates='children')
-    children: Mapped[list['Folder']] = relationship('Folder', back_populates='parent')
-    tracks: Mapped[list['Track']] = relationship('Track', back_populates='folder', cascade='all, delete-orphan')
+    children: Mapped[list['Folder']] = relationship('Folder', back_populates='parent', order_by='Folder.path')
+    tracks: Mapped[list['Track']] = relationship('Track', back_populates='folder', order_by='Track.title', cascade='all, delete-orphan')
 
     __table_args__ = (
         Index('ix_folders_path', 'path'),

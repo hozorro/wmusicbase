@@ -33,7 +33,7 @@ class ScanMiddleware:
         
         request = Request(scope)
         if system_state.is_scanning and request.url.path not in ALLOWED_DURING_SCAN:
-            # 返回 423 Locked（资源被锁定）
+            # return 423 Locked（resource is currently locked）
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED, 
                 detail='System is busy scanning music library, Please wait...'

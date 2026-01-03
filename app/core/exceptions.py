@@ -19,12 +19,20 @@ credentials_exception = HTTPException(
 
 class BusinessException(HTTPException):
     '''
-    业务异常类
-    - status_code固定为400
-    - business_code为业务错误码（自定义，如1001）
+    business exception class
+    - status_code is fixed as 400
+    - business_code is customized for business exception
+    '''
+
+    '''Customized business exception code
+    10203: partial success
+    10404: resource not found
+    10405: resource already exists
+    10406: resource not allowed
+    to be continued
     '''
     def __init__(self, code: int, msg: str, detail: str | None = None):
-        super().__init__(status_code=400, detail=msg)
+        super().__init__(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
         self.business_code = code
         self.business_msg = msg
         self.detail = detail

@@ -9,9 +9,10 @@
 '''
 
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel, ConfigDict, Field
 from datetime import datetime
-from .music import TrackBase, ArtistBase
+from .track import TrackBase
+from .artist import ArtistBase
 from typing import Literal
 
 class ArtistStatInfo(ArtistBase):
@@ -66,3 +67,38 @@ class DashboardInfo(BaseModel):
 
 class InitializedResponse(BaseModel):
     initialized: bool
+
+class LogProperty(BaseModel):
+    log_types: list[dict[str, str]]
+    log_levels: list[dict[str, str]]
+
+class LogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    time: str
+    level: str
+    logger: str
+    location: str
+    message: str
+
+class LogPageResponse(BaseModel):
+    logs: list[LogResponse]
+    pagination: dict[str, int]
+
+# region frontend
+class MetaItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    model_name: Literal['track', 'artist', 'album', 'folder', 'genre', 'playlist', 'trackhit', 'trackfav', 'artistfav', 'playlisthit']
+    total_count: int = Field(0, ge=0, description='entity count')
+    last_update: datetime | None = Field(None, description='last updated time')
+
+class MusicStatInfo(RootModel):
+    root: list[MetaItem]
+
+class TransferRequest(BaseModel):
+    page_num: int | None = 1
+    page_size: int | None = 100
+    last_sync: datetime | None = None
+
+# endregion frontend

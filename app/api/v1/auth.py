@@ -29,7 +29,7 @@ router = APIRouter()
 @router.post('/login', response_model=ResponseModel[TokenData])
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     ''' login'''
     
@@ -42,6 +42,7 @@ async def login(
     refresh_token = create_refresh_token(data={'sub': user.username})
     user.refresh_token = refresh_token
     await db.commit()
+
     return ResponseModel(
         code=200,
         msg='ok',
@@ -57,14 +58,14 @@ async def register(
     user: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    # 检查是否已有用户（仅允许首次注册）
+    # check if any user exists(can only register when first run and no user exists)
     user_count = await db.scalar(select(func.count(User.id)))
     if user_count > 0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail='Registration closed after first user'
         )
-    # 创建用户
+    # create user
     hash_password = get_password_hash(user.password)
     is_admin = user.is_admin
     user_db = User(
@@ -81,7 +82,7 @@ async def register(
         data=UserResponse.model_validate(user_db)
     )
 
-@router.post('/refresh', response_model=ResponseModel[TokenData])
+@router.get('/refresh', response_model=ResponseModel[TokenData])
 async def refresh_token(
     refresh_token: Annotated[str, Depends(auth2_scheme)],
     db: AsyncSession = Depends(get_db)

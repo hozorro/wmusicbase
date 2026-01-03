@@ -10,10 +10,12 @@
 
 
 from fastapi import APIRouter
-from . import music, admin, auth, system
+from . import music, admin, auth, system, artwork, stream
 
 api_router = APIRouter()
 api_router.include_router(music.music_router, prefix='/music', tags=['music'])
 api_router.include_router(admin.admin_router, prefix='/admin', tags=['admin'])
 api_router.include_router(auth.router, prefix='/auth', tags=['auth'])
 api_router.include_router(system.router, prefix='/system', tags=['system'])
+api_router.include_router(artwork.router, prefix='/artwork', tags=['artwork'])
+api_router.include_router(stream.router, prefix='/stream', tags=['stream'])

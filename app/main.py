@@ -10,31 +10,32 @@
 
 
 from contextlib import asynccontextmanager
-# from sqlalchemy import text
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
+from app.core.config import settings, create_required_directories
 from app.core.db import engine
-from app.core.exceptions import BusinessException
+from app.core.exception_handlers import EXCEPTION_HANDLERS
 from app.core.middleware import ScanMiddleware
-from app.models import Base
 from app.api.v1 import api_router
+# from sqlalchemy import text
 # from app.background.watcher import start_watcher, stop_watcher
 # from app.services.scanner import scan_music_library
-from app.core.logger import setup_logging
+from app.core.logger import init_logging, logger
 
-#========== 配置日志 ===========
-setup_logging()
-import logging
-logger = logging.getLogger(__name__)
+#========== Log configuration =======
+init_logging()  # init logging, before other modules
 
-#========== 生命周期 ===========
+#========== Life span ===============
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀Starting application...")
+    logger.info("🔧Creating required directories...")
+    create_required_directories()
+    logger.info("✅Required directories created successfully or no need to create because they already exist.")
+    logger.info("✅Server is ready to serve requests.")
 
-    # 可选：首次启动时自动扫描（仅当Track表为空时）
+    #### Optitional：Start scanning when first run(only when tracks table is empty)
     # async with engine.connect() as conn:
     #     result = await conn.execute(text("SELECT 1 FROM tracks LIMIT 1"))
     #     has_tracks = result.fetchone()
@@ -42,18 +43,18 @@ async def lifespan(app: FastAPI):
     # if not has_tracks:
     #     logger.info("🔍No Tracks found, Start initial scan...")
     #     async with engine.begin() as conn:
-    #         await conn.run_sync(Base.metadata.create_all) # 确保表都存在
+    #         await conn.run_sync(Base.metadata.create_all) # ensure tables exist
     #     await scan_music_library(settings.MUSIC_LIBRARY_PATH)
     #     logger.info("✅Initial scan completed.")
     
-    # 启动文件监听
+    #### Start watcher
     # start_watcher()
     # logger.info("👀File watcher started.")
 
     yield
 
     logger.info("🛑Shutting down...")
-    # 停止文件监听
+    ### Stop watcher
     # await stop_watcher()
     # logger.info("🛑File watcher stopped.")
     await engine.dispose()
@@ -62,55 +63,33 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG, lifespan=lifespan)
 
-#========== 配置跨域 ===========
+#========== CORS configuration ===========
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[str(origin) for origin in settings.CORS_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
     max_age=3600,
 )
 app.add_middleware(ScanMiddleware)
+@app.middleware("http")
+async def add_cors_to_fileresponse(request, call_next):
+    response = await call_next(request)
 
-#=========== 包含路由 ===========
+    if isinstance(response, FileResponse):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+
+        response.headers["Cache-Control"] = "no-store"
+    
+    return response
+
+#=========== Including routers ===================
 app.include_router(api_router, prefix="/api/v1")
 
-#=========== 全局异常处理 ===========
-@app.exception_handler(BusinessException)
-async def business_exception_handler(request: Request, exc: BusinessException):
-    """业务异常处理"""
-    return JSONResponse(
-        status_code=400, 
-        content={
-            "code": exc.business_code, 
-            "msg": exc.business_msg,
-            "detail": exc.detail if settings.DEBUG else None
-        }
-    )
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """HTTP异常处理"""
-    logger.error(f'HTTP exception: {exc}', exc_info=True)
-    return JSONResponse(
-        status_code=exc.status_code, 
-        content={
-            "code": exc.status_code, 
-            "msg": exc.detail,
-            "detail": exc.detail if settings.DEBUG else None
-        }
-    )
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    """未处理的异常处理"""
-    logger.error(f'Unhandled exception: {exc}', exc_info=True)
-    return JSONResponse(
-        status_code=500, 
-        content={
-            "code": 500, 
-            "msg": "Internal Server Error",
-            "detail": str(exc) if settings.DEBUG else None
-        }
-    )
+#=========== Global exception handlers ===========
+for exc_type, handler in EXCEPTION_HANDLERS:
+    app.exception_handler(exc_type)(handler)

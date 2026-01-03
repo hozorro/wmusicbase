@@ -21,7 +21,7 @@ router = APIRouter()
 
 @router.get('/initialized', response_model=ResponseModel[InitializedResponse])
 async def check_system_initialized(db: AsyncSession = Depends(get_db)):
-    '''检查系统是否已完成初始化，即是否存在至少一个用户'''
+    '''check whether system has been initialized, if any user exists, system is initialized'''
     result = await db.execute(select(User).limit(1))
     has_user = result.scalar_one_or_none() is not None
     return ResponseModel(code=200, msg='ok', data=InitializedResponse(initialized=has_user))

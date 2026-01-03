@@ -10,69 +10,67 @@
 
 
 from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.services.upload import save_temp_file, create_staging_session, move_all_to_staging, move_single_to_staging
-from app.services.archive import archive_session
-from app.core.config import settings
-from app.core.db import get_db
+from app.services.file_service import FileService, ArchiveService
+from app.core.deps import ADMIN_DEPS, SettingsDep
 from app.core.exceptions import BusinessException
-from app.schemas.common import ResponseModel
+from app.utils.aidmatch import generate_fingerprint, match_fingerprint
+from app.schemas.common import ResponseModel, CountResponse
+from app.schemas.filething import (
+    FileBase, SessionBase, SessionListResponse, FileInfoListResponse, UpdateVerionList, UpdateMetaTagsList,
+    CreateArchive, ArchiveResponse, CreateFingerprint, Fingerprint, MatchAcoustResponse
+)
 from typing import Annotated
 
-router = APIRouter()
+router = APIRouter(dependencies=ADMIN_DEPS)
 
-settings.TEMP_DIR.mkdir(parents=True, exist_ok=True)
-settings.STAGING_DIR.mkdir(parents=True, exist_ok=True)
-
-@router.post('/uploadfile')
+@router.post('/uploadfile', response_model=ResponseModel[FileBase])
 async def upload_file(file: UploadFile, name: Annotated[str | None, Form()] = None):
     if file.content_type not in ['audio/mpeg', 'audio/flac']:
         raise HTTPException(status_code=400, detail='Only mp3 and flac files are allowed')
+    service = FileService()
     content = await file.read()
     if name:
         filename = name
     else:
         filename = file.filename
-    _ = await save_temp_file(content, filename)
+    _ = await service.save_temp_file(content, filename)
     await file.close()
-    return ResponseModel(code=200, msg='ok', data=filename)
+    return ResponseModel(data=FileBase(filename=filename))
 
-@router.post('/staging/sessions')
+@router.post('/staging/session', response_model=ResponseModel[SessionBase])
 async def create_session():
-    session_id = create_staging_session()
-    return ResponseModel(code=200, msg='ok', data=session_id)
+    service = FileService()
+    session_id = service.create_staging_session()
+    return ResponseModel(data=SessionBase(session_id=session_id))
 
-@router.get('/staging/sessions')
-async def list_staging_sessions():
-    '''列出所有未归档整理的会话'''
-    if not settings.STAGING_DIR.exists():
-        return ResponseModel(code=200, msg='ok', data=[])
-    
-    sessions = []
-    for item in settings.STAGING_DIR.iterdir():
-        if item.is_dir():
-            songs_dir = item / 'songs'
-            song_count = len(list(songs_dir.iterdir())) if songs_dir.exists() else 0
+@router.get('/staging/sessions', response_model=ResponseModel[SessionListResponse])
+async def list_staging_sessions(service: FileService = Depends(FileService)):
+    '''list all staging sessions'''
+    sessions = service.list_sessions()
+    return ResponseModel(data=SessionListResponse.model_validate({'sessions': sessions}))
 
-            mtime = item.stat().st_mtime
+@router.get('/staging/sessions/{session_id}/files', response_model=ResponseModel[FileInfoListResponse])
+async def get_session_files(session_id: str, service: FileService = Depends(FileService)):
+    try:
+        files = service.list_session_files(session_id)
+        return ResponseModel(data=FileInfoListResponse(files=files))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Session not found')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error when get file info: {str(e)}')
 
-            sessions.append({
-                'session_id': item.name,
-                'song_count': song_count,
-                'created_at': mtime
-            })
-    sessions.sort(key=lambda x: x['created_at'], reverse=True)
-    return ResponseModel(code=200, msg='ok', data=sessions)
-
-@router.post('/staging/sessions/{session_id}/files')
+@router.post('/staging/sessions/{session_id}/files', response_model=ResponseModel[FileInfoListResponse])
 async def add_file_to_session(
     session_id: str, 
+    settings: SettingsDep,
+    service: FileService = Depends(FileService), 
     temp_file_id: Annotated[
         str | None, 
         Query(description='Optional: specific temp file ID. If not provided, will move all files in temp to staging.')
     ] = None
 ):
-    
+    # 1. 将temp文件移入指定的staging会话
+    moved = []
     session_dir = settings.STAGING_DIR / session_id
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail='Session not found')
@@ -80,20 +78,66 @@ async def add_file_to_session(
     try:
         if temp_file_id is None:
             # 批量移动所有temp文件
-            moved = move_all_to_staging(session_id)
-            return ResponseModel(code=200, msg='ok', data={'moved_files': moved, 'count': len(moved)})
+            moved = service.move_all_to_staging(session_id)
         else:
             # 移动单个temp文件
-            moved_file = move_single_to_staging(session_id, temp_file_id)
-            return ResponseModel(code=200, msg='ok', data=moved_file)
+            moved.append(service.move_single_to_staging(session_id, temp_file_id))
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=f'Error when moving file: {str(e)}')
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f'Error when moving file: {str(e)}')
+    
+    # 2. 获取所有文件的信息
+    try:
+        files = service.list_session_files(session_id, moved)
+        return ResponseModel(data=FileInfoListResponse(files=files))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error when get file info: {str(e)}')
+    
+@router.post('/staging/sessions/{session_id}/updateversion', response_model=ResponseModel[CountResponse])
+async def update_version(session_id: str, input: UpdateVerionList, service: FileService = Depends(FileService)):
+    try:
+        for item in input.items:
+            service.update_file_version(session_id, item.id, item.use_apev2)
+        return ResponseModel(data=CountResponse(count=len(input.items)))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error when update file meta version: {str(e)}')
 
-@router.post('/staging/sessions/{session_id}/archive')
-async def archive_session_route(session_id: str, db: AsyncSession = Depends(get_db)):
-    errors = await archive_session(session_id, db)
+@router.post('/staging/sessions/{session_id}/updatemetatags', response_model=ResponseModel[CountResponse])
+async def update_metatags(session_id: str, input: UpdateMetaTagsList, service: FileService = Depends(FileService)):
+    try:
+        for item in input.items:
+            data = {k: v for k, v in item.model_dump().items() if k != 'id'}
+            service.update_file_metatags(session_id, item.id, data)
+        return ResponseModel(data=CountResponse(count=len(input.items)))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error when update metadata: {str(e)}')
+
+@router.post('/staging/sessions/{session_id}/archive', response_model=ResponseModel[ArchiveResponse])
+async def archive_session_route(
+    session_id: str,
+    input: CreateArchive,
+    lang: str | None = 'CN', 
+    service: ArchiveService = Depends(ArchiveService),
+):
+    errors = await service.archive_session(session_id, input.items, input.playlist, lang)
     if errors:
         raise BusinessException(code=1002, msg='partial success', detail='\n'.join(errors))
-    return ResponseModel(code=200, msg='ok', data='archived')
+    return ResponseModel(data=ArchiveResponse(archived=True))
+
+@router.post('/staging/sessions/fingerprint', response_model=ResponseModel[Fingerprint])
+async def fingerprint(fp_input: CreateFingerprint, settings: SettingsDep):
+    file_path = settings.STAGING_DIR / fp_input.session_id / 'songs' / fp_input.filename
+    try:
+        duration, fp = generate_fingerprint(file_path)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=f'Error when generate fingerprint: {str(e)}')
+    return ResponseModel(data=Fingerprint(duration=duration, fingerprint=fp))
+
+@router.post('/staging/sessions/match', response_model=ResponseModel[MatchAcoustResponse])
+async def match(fingerprint: Fingerprint):
+    try:
+        acoust_info_list = match_fingerprint(fingerprint.duration, fingerprint.fingerprint)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=f'Error when match song metadata: {str(e)}')
+    return ResponseModel(data=MatchAcoustResponse(matched_list=acoust_info_list))

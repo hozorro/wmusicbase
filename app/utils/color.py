@@ -13,8 +13,9 @@ import random, math
 
 def generate_unique_light_color(existing_colors: set, step=16) -> str:
     '''
-    生成一个唯一的浅色颜色
-    - step: 颜色步长，默认为16，控制差异度，过大可能导致颜色冲突，颜色总数为(256 / step / 2) ^ 3
+    generate a unique light color
+    - step: color step, default 16, control the difference, 
+    maybe conflict if the number is too big, total color count is (256 / step / 2) ^ 3
     '''
     end = math.floor(256 / step)
     start = math.floor(end / 2)
@@ -24,6 +25,6 @@ def generate_unique_light_color(existing_colors: set, step=16) -> str:
         g = random.randint(start, end) * step - 1
         b = random.randint(start, end) * step - 1
         color = f'#{r:02x}{g:02x}{b:02x}'
-        if color not in existing_colors: # 确保颜色不重复
+        if color not in existing_colors: # ensure the color is unique
             return color
-    return '#7f7f7f' # 如果尝试次数过多，则返回默认颜色
+    return '#7f7f7f' # if all attempts fail, return a default color

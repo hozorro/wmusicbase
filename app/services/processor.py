@@ -12,37 +12,37 @@
 from pathlib import Path
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from typing import Any
+from app.core.logger import logger
+from app.core.db import retry_deadlock
 from app.models import Genre, Artist, Album, Track, Folder, track_artists, track_genres
 from app.utils.color import generate_unique_light_color
 from app.utils.pinyin import get_artist_sort_fields
 from app.utils.metadata import extract_metadata, extract_cover_art_hash
-from logging import getLogger
-
-logger = getLogger(__name__)
+from typing import Any
 
 class MusicFileProcessor:
-    def __init__(self, db:AsyncSession):
+    def __init__(self, root_path: Path, db: AsyncSession):
         self.db = db
-        # 内存缓存：已处理的实体映射（减少数据查询）
+        self.root_path = root_path
+        # memory cache：handled entity matches(avoid duplicate processing)
         self.genre_cache: dict[str, 'Genre'] = {}   # {name: Genre}
         self.artist_cache: dict[str, 'Artist'] = {} # {name: Artist}
         self.album_cache: dict[tuple, 'Album'] = {} # {(title,album_artist_id): Album}
         self.folder_cache: dict[str, 'Folder'] = {} # {path: Folder}
         self.track_cache: dict[str, 'Track'] = {}   # {path: Track}
         self.genre_colors_cache: set[str] = set()
-        # 已处理的文件路径集合（避免重复处理同一文件）
+        # handled file paths set(avoid duplicate processing)
         self.processed_files: set[str] = set()
         self.logger = logger
 
-    async def get_or_create_genre(self, name: str) -> Genre:
-        '''获取或创建流派（利用缓存和数据库冲突处理）'''
+    @retry_deadlock(max_retries=3)
+    async def get_or_create_genre(self, name: str) -> Genre | None:
+        '''get or create genre(use cache and database conflict handling)'''
         if name in self.genre_cache:
             return self.genre_cache[name]
         
-        # 从数据库中获取流派
+        # get genre from database
         result = await self.db.execute(select(Genre).where(Genre.name == name))
         genre = result.scalar_one_or_none()
         if genre: 
@@ -51,30 +51,30 @@ class MusicFileProcessor:
         
         color = generate_unique_light_color(self.genre_colors_cache)
         
-        # 创建流派（冲突时忽略）
-        try:
-            stmt = pg_insert(Genre).values(
-                name=name,
-                color=color,
-                info={}
-            ).on_conflict_do_nothing(index_elements=['name'])
-            await self.db.execute(stmt)
-            await self.db.flush()
-            # 重新查询确保并发场景下拿到最新的流派
+        # create genre(ignore when conflict)
+        stmt = pg_insert(Genre).values(
+            name=name,
+            color=color,
+            info={}
+        ).on_conflict_do_nothing(index_elements=['name']).returning(Genre)
+        result = await self.db.execute(stmt)
+        genre = result.scalar_one_or_none()
+        # lookup again to ensure get the latest genre at concurrency scenario
+        if not genre:
             result = await self.db.execute(select(Genre).where(Genre.name == name))
             genre = result.scalar_one()
-            self.genre_cache[name] = genre
-            self.genre_colors_cache.add(color)
-            return genre
-        except IntegrityError as e: # 遇到 IntegrityError，说明数据库中已存在该记录
-            self.logger.error(f'Failed to create genre {name}: {e}')
-    
-    async def get_or_create_artist(self, name: str, mbid: str | None) -> Artist:
-        '''获取或创建艺术家（利用缓存和数据库冲突处理）'''
+
+        self.genre_cache[name] = genre
+        self.genre_colors_cache.add(color)
+        return genre
+
+    @retry_deadlock(max_retries=3)
+    async def get_or_create_artist(self, name: str, mbid: str | None) -> Artist | None:
+        '''get or create artist(use cache and database conflict handling)'''
         if name in self.artist_cache:
             return self.artist_cache[name]
         
-        # 从数据库中获取艺术家
+        # get artist from database
         result = await self.db.execute(select(Artist).where(Artist.name == name))
         artist = result.scalar_one_or_none()
         if artist: 
@@ -83,81 +83,81 @@ class MusicFileProcessor:
         
         sort_name, pinyin_initial = get_artist_sort_fields(name)
 
-        try:
-            stmt = pg_insert(Artist).values(
-                name=name,
-                mb_artistid=mbid,
-                sort_name=sort_name,
-                pinyin_initial=pinyin_initial,
-                info={}
-            ).on_conflict_do_nothing(index_elements=['name'])
-            await self.db.execute(stmt)
-            await self.db.flush()
+        stmt = pg_insert(Artist).values(
+            name=name,
+            mb_artistid=mbid,
+            sort_name=sort_name,
+            pinyin_initial=pinyin_initial,
+            info={}
+        ).on_conflict_do_nothing(index_elements=['name']).returning(Artist)
+        result = await self.db.execute(stmt)
+        artist = result.scalar_one_or_none()
+        
+        if not artist:
             result = await self.db.execute(select(Artist).where(Artist.name == name))
             artist = result.scalar_one()
-            self.artist_cache[name] = artist
-            return artist
-        except IntegrityError as e: # 遇到 IntegrityError，说明数据库中已存在该记录
-            self.logger.error(f'Failed to create artist {name}: {e}')
-    
+        self.artist_cache[name] = artist
+        return artist
+
+    @retry_deadlock(max_retries=3)
     async def get_or_create_album(self, title: str, year: int | None, mbid: str | None, album_artist: Artist) -> Album | None:
-        '''获取或创建专辑（利用缓存和数据库冲突处理）'''
+        '''get or create album(use cache and database conflict handling)'''
         if (title, album_artist.id) in self.album_cache:
             return self.album_cache[(title, album_artist.id)]
         
-        # 从数据库中获取专辑
+        # get album from database
         result = await self.db.execute(select(Album).where(Album.title == title, Album.album_artist_id == album_artist.id))
         album = result.scalar_one_or_none()
         if album: 
             self.album_cache[(title, album_artist.id)] = album
             return album
-        try:
-            stmt = pg_insert(Album).values(
-                title=title,
-                year=year,
-                mb_albumid=mbid,
-                album_artist_id=album_artist.id
-            ).on_conflict_do_nothing(index_elements=['title', 'album_artist_id'])
-            await self.db.execute(stmt)
-            await self.db.flush()
+
+        stmt = pg_insert(Album).values(
+            title=title,
+            year=year,
+            mb_albumid=mbid,
+            album_artist_id=album_artist.id
+        ).on_conflict_do_nothing(index_elements=['title', 'album_artist_id']).returning(Album)
+        result = await self.db.execute(stmt)
+        album = result.scalar_one_or_none()
+
+        if not album:
             result = await self.db.execute(select(Album).where(Album.title == title, Album.album_artist_id == album_artist.id))
             album = result.scalar_one()
-            self.album_cache[(title, album_artist.id)] = album
-            return album
-        except IntegrityError as e: # 遇到 IntegrityError，说明数据库中已存在该记录
-            self.logger.error(f'Failed to create album {title}: {e}')
+        self.album_cache[(title, album_artist.id)] = album
+        return album
 
-
-    async def get_or_create_folder(self, path: Path, root_path: Path) -> Folder:
-        '''获取或创建文件夹（利用缓存和数据库冲突处理）'''
-        abs_path = str(path.resolve())
-        if abs_path in self.folder_cache:
-            return self.folder_cache[abs_path]
+    @retry_deadlock(max_retries=3)
+    async def get_or_create_folder(self, path: Path, root_path: Path) -> Folder | None:
+        '''get or create folder(use cache and database conflict handling)'''
+        rel_path = str(path.relative_to(self.root_path))
+        if rel_path in self.folder_cache:
+            return self.folder_cache[rel_path]
         
-        # 从数据库中获取文件夹
-        result = await self.db.execute(select(Folder).where(Folder.path == abs_path))
+        # get folder from database
+        result = await self.db.execute(select(Folder).where(Folder.path == rel_path))
         folder = result.scalar_one_or_none()
         if folder: 
-            self.folder_cache[abs_path] = folder
+            self.folder_cache[rel_path] = folder
             return folder
         
-        # 创建父目录
+        # create parent folder
         parent_id = None
         if path != root_path:
             parent_folder = await self.get_or_create_folder(path.parent, root_path)
             parent_id = parent_folder.id
 
-        try:
-            stmt = pg_insert(Folder).values(path=abs_path, parent_id=parent_id).on_conflict_do_nothing(index_elements=['path'])
-            await self.db.execute(stmt)
-            await self.db.flush()
-            result = await self.db.execute(select(Folder).where(Folder.path == abs_path))
+        stmt = pg_insert(Folder).values(
+            path=rel_path, parent_id=parent_id
+        ).on_conflict_do_nothing(index_elements=['path']).returning(Folder)
+        result = await self.db.execute(stmt)
+        folder = result.scalar_one_or_none()
+
+        if not folder:
+            result = await self.db.execute(select(Folder).where(Folder.path == rel_path))
             folder = result.scalar_one()
-            self.folder_cache[abs_path] = folder
-            return folder
-        except IntegrityError as e:
-            self.logger.error(f'❌Failed to create folder {str(path)}: {e}')
-            raise
+        self.folder_cache[rel_path] = folder
+        return folder
     
     async def update_track(
         self,
@@ -169,39 +169,46 @@ class MusicFileProcessor:
         artists: list[Artist],
         genres: list[Genre]
     ) -> bool:
-        '''更新已存在的Track及其关联关系'''
-        # 1. 更新基础字段
-        track.title = meta['title']
-        track.duration = meta['duration']
-        track.bitrate = meta['bitrate']
-        track.bitrate_mode = meta['bitrate_mode']
-        track.year = meta['year']
-        track.acoustid_id = meta['acoustid_id']
-        track.mb_trackid = meta['mb_trackid']
-        track.cover_art_hash = cover_art_hash
-        track.folder = folder
-        track.album = album
-        track.is_deleted = False # 若之前被软删除，恢复
-        track.deleted_at = None
+        '''update the existed track's metadata and relations'''
+        try:
+            # 1. update basic info
+            track.title = meta['title']
+            track.duration = meta['duration']
+            track.bitrate = meta['bitrate']
+            track.bitrate_mode = meta['bitrate_mode']
+            track.year = meta['year']
+            track.acoustid_id = meta['acoustid_id']
+            track.mb_trackid = meta['mb_trackid']
+            track.cover_art_hash = cover_art_hash
+            track.folder = folder
+            track.album = album
+            track.is_deleted = False # if the track is deleted, set it to False as soft delete
+            track.deleted_at = None
 
-        # 2. 清除旧的多对多关系
-        await self.db.execute(delete(track_artists).where(track_artists.c.track_id == track.id))
-        await self.db.execute(delete(track_genres).where(track_genres.c.track_id == track.id))
+            # 2. clear old many to many relations
+            await self.db.execute(delete(track_artists).where(track_artists.c.track_id == track.id))
+            await self.db.execute(delete(track_genres).where(track_genres.c.track_id == track.id))
 
-        # 3. 重建多对多关系
-        if artists:
-            await self.db.execute(track_artists.insert().values([
-                {'track_id': track.id, 'artist_id': artist.id} for artist in artists
-            ]))
-        if genres: 
-            await self.db.execute(track_genres.insert().values([
-                {'track_id': track.id, 'genre_id': genre.id} for genre in genres
-            ]))
-        await self.db.flush()
-        return True
+            # 3. rebuild many to many relations
+            if artists:
+                await self.db.execute(track_artists.insert().values([
+                    {'track_id': track.id, 'artist_id': artist.id} for artist in artists
+                ]))
+            if genres: 
+                await self.db.execute(track_genres.insert().values([
+                    {'track_id': track.id, 'genre_id': genre.id} for genre in genres
+                ]))
+            await self.db.flush()
+            self.logger.debug(f'✅Updated track {track.title} ({track.id}) successfully.')
+            return True
+        except Exception as e: # other exceptions, indicating database operation failure
+            self.logger.error(f'❌Failed to update track {track.id}: {e}')
+            self.db.rollback()
+            return False
 
-    async def process_single_file(self, file_path: Path, root_path: Path) -> bool:
-        '''处理单个音乐文件，返回是否成功'''
+    @retry_deadlock(max_retries=3)
+    async def process_single_file(self, file_path: Path) -> bool:
+        '''process single file, return True if success'''
         if file_path in self.processed_files: 
             return True
 
@@ -210,57 +217,63 @@ class MusicFileProcessor:
             self.logger.warning(f'❌Failed to extract metadata from {file_path}')
             return False
         
-        # ===== 推导album_artist_name =====
+        # ===== infer album_artist_name =====
         album_artist_name = None
         mb_albumartistid = None
 
-        # 1. 优先使用albumartist（取第一个）
+        # 1. first use albumartist(the first one)
         albumartist_list = meta.get('albumartist', [])
-        if albumartist_list and albumartist_list[0].strip():
-            album_artist_name = albumartist_list[0].strip()
+        if albumartist_list:
+            album_artist_name = albumartist_list[0]
+            album_artist_name = album_artist_name.strip() if album_artist_name else None
             mb_albumartistid_list = meta.get('mb_albumartistid', [])
             if mb_albumartistid_list:
-                mb_albumartistid = mb_albumartistid_list[0].strip()
+                mb_albumartistid = mb_albumartistid_list[0].strip() if mb_albumartistid_list[0] else None
 
-        # 2. fallback 到 artist（取第一个）
+        # 2. fallback to artist(the first one)
         if not album_artist_name:
             artist_list = meta['artists']
-            if artist_list and artist_list[0].strip():
-                album_artist_name = artist_list[0].strip()
+            if artist_list:
+                album_artist_name = artist_list[0].strip() if artist_list[0] else None
 
-        # 3. 最终 fallback
+        # 3. final fallback
         if not album_artist_name: 
             album_artist_name = 'Unknown Artist'
 
-        # ===== 创建各实体（按依赖顺序） =====
-        # 1. 获取/处理/创建 Genre
+        # ===== create each entity (sequence is important) =====
+        # 1. get/handle/create Genre
         genres = []
         for genre_name in meta['genres']:
-            genre_strip = genre_name.strip()
+            genre_strip = genre_name.strip() if genre_name else None
             if genre_strip: 
                 genre = await self.get_or_create_genre(genre_strip)
-                genres.append(genre)
+                if genre:
+                    genres.append(genre)
 
-        # 2. 获取/处理/创建 Artist
+        # 2. get/handle/create Artist
         artists = []
         for i, artist_name in enumerate(meta['artists']):
-            artist_strip = artist_name.strip()
+            artist_strip = artist_name.strip() if artist_name else None
             if artist_strip:
                 mbid = meta['mb_artistids'][i] if i < len(meta['mb_artistids']) else None
                 artist = await self.get_or_create_artist(artist_strip, mbid)
-                artists.append(artist)
+                if artist:
+                    artists.append(artist)
         
-        # 3. 获取/处理/创建 Album
-        album_artist = await self.get_or_create_artist(album_artist_name.strip(), mb_albumartistid)
-        album = await self.get_or_create_album(meta['album'], meta['year'], meta['mb_albumid'], album_artist)
+        # 3. get/handle/create Album
+        # handle album title, if empty, set default title with “Unknown Album(album artist name)”
+        album_name = meta['album'].strip() if meta['album'] else f'Unknown Album({album_artist_name})'
+        album_artist = await self.get_or_create_artist(album_artist_name, mb_albumartistid)
+        if album_artist:
+            album = await self.get_or_create_album(album_name, meta['year'], meta['mb_albumid'], album_artist)
 
-        # 4. 获取/创建 Folder
-        folder = await self.get_or_create_folder(file_path.parent, root_path)
+        # 4. get/create Folder
+        folder = await self.get_or_create_folder(file_path.parent, self.root_path)
 
-        # 5. 计算封面hash
+        # 5. comput cover art hash
         cover_art_hash = extract_cover_art_hash(file_path)
 
-        # 6. 创建/更新 Track
+        # 6. create/update Track
         result = await self.db.execute(select(Track).where(Track.path == str(file_path.resolve())))
         track = result.scalar_one_or_none()
         if track:
@@ -275,13 +288,12 @@ class MusicFileProcessor:
                 acoustid_id=meta['acoustid_id'],
                 mb_trackid=meta['mb_trackid'],
                 cover_art_hash=cover_art_hash,
-                path=str(file_path.resolve()),
+                path=str(file_path.relative_to(self.root_path)),
                 folder=folder,
                 album=album,
-                artists=artists,    # 自动处理多对多关系
-                genres=genres       # 自动处理多对多关系
+                artists=artists,    # handle many to many relations automatically
+                genres=genres       # handle many to many relations automatically
             )
             self.db.add(track)
-            await self.db.flush()
             self.processed_files.add(file_path)
             return True

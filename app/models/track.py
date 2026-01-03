@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from . import Folder, Album, Artist, Genre, TrackHit, TrackFav, Playlist
 
-from sqlalchemy import Table, Column, Integer, String, ForeignKey, Index, UniqueConstraint, func
+from sqlalchemy import Table, Column, Integer, String, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from datetime import datetime
@@ -24,6 +24,9 @@ track_artists = Table(
     Base.metadata,
     Column('track_id', Integer, ForeignKey('tracks.id', ondelete='CASCADE'), primary_key=True),
     Column('artist_id', Integer, ForeignKey('artists.id', ondelete='CASCADE'), primary_key=True),
+
+    Index('ix_track_artist_track_id', 'track_id'),
+    Index('ix_track_artist_artist_id', 'artist_id'),
 )
 
 track_genres = Table(
@@ -31,6 +34,9 @@ track_genres = Table(
     Base.metadata,
     Column('track_id', Integer, ForeignKey('tracks.id', ondelete='CASCADE'), primary_key=True),
     Column('genre_id', Integer, ForeignKey('genres.id', ondelete='CASCADE'), primary_key=True),
+
+    Index('ix_track_genre_track_id', 'track_id'),
+    Index('ix_track_genre_genre_id', 'genre_id'),
 )
 
 class Track(Base, DateTimeMixin):
@@ -62,7 +68,7 @@ class Track(Base, DateTimeMixin):
     # Playback
     favorites: Mapped[list['TrackFav']] = relationship('TrackFav', back_populates='track', cascade='all, delete-orphan')
     play_hits: Mapped[list['TrackHit']] = relationship('TrackHit', back_populates='track', cascade='all, delete-orphan')
-    playlists: Mapped[list['Playlist']] = relationship(secondary='playlist_tracks', back_populates='tracks')
+    playlists: Mapped[list['Playlist']] = relationship('Playlist', secondary='playlist_tracks', back_populates='tracks')
 
     __table_args__ = (
         Index('ix_tracks_path', 'path'),

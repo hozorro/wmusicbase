@@ -14,9 +14,9 @@ from pypinyin import lazy_pinyin, Style
 
 def normalize_initial(char: str) -> str:
     '''
-    将字符标准化为首字母分组标识。
-    - 英文字母A-Z -> 保持大写
-    - 其他（数字、符号、非字母） -> '_'
+    get the initial char alphabet of a character string(Chinese or English or others)
+    - English letters A-Z -> keep uppercase
+    - other (numbers, symbols, non-letters) -> '_'
     '''
     if not char: 
         return '_'
@@ -27,24 +27,24 @@ def normalize_initial(char: str) -> str:
 
 def get_artist_sort_fields(name: str) -> tuple[str, str]:
     '''
-    从artist原始名称生成用于排序和分组的字段。
+    generate sort and group fields from artist name
     Args:
-        name (str): artist原始名称
+        name (str): artist name
     Returns:
         tuple[str, str]: (sort_name, pinyin_initial)
-            - sort_name: 用于排序的标准化名称（全拼）
-            - pinyin_initial: 用于分组的首字母（A-Z或'_'）
+            - sort_name: sort name for search and order(all string)
+            - pinyin_initial: initial alphabet used for group(A-Z or '_')
     '''
     if not name or not name.strip(): 
         return '', '_'
     name = name.strip()
-    # 使用pypinyin获取拼音列表（保留multi-word)
+    # use pypinyin lib to get pinyin list(multi-word reserved)
     pinyin_parts = lazy_pinyin(name, style=Style.NORMAL)
 
-    # 构建sort_name: 首字母大写，空格分隔
+    # build sort_name: uppercase of the first alphabet, separated by space
     sort_name = ' '.join(pinyin_parts).title()
 
-    # 获取首字母
+    # get the first alphabet
     if pinyin_parts and pinyin_parts[0]: 
         first_pinyin = pinyin_parts[0]
         first_char = first_pinyin[0]

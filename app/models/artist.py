@@ -30,7 +30,7 @@ class Artist(Base, DateTimeMixin):
     # relations
     albums_as_main: Mapped[list['Album']] = relationship('Album', back_populates='album_artist')
     tracks: Mapped[list['Track']] = relationship(secondary='track_artists', back_populates='artists')
-    favorite_by: Mapped[list['ArtistFav']] = relationship('ArtistFav', back_populates='artist', cascade='all, delete-orphan')
+    favorites: Mapped[list['ArtistFav']] = relationship('ArtistFav', back_populates='artist', cascade='all, delete-orphan')
 
     __table_args__ = (
         UniqueConstraint('name', name='uq_artist_name'),

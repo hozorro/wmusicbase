@@ -11,15 +11,13 @@
 
 import threading
 import time
+from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from pathlib import Path
 from app.core.config import settings
 from app.core.state import system_state
-from app.services.sync import handle_file_evant
-import logging
-
-logger = logging.getLogger(__name__)
+from app.core.logger import logger
+from app.services.watch_handler import handle_file_event
 
 observer = None
 watch_thread = None
@@ -31,19 +29,19 @@ class MusicLibraryHandler(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory and self._is_music_file(event.src_path):
             logger.info(f'File created: {event.src_path}')
-            handle_file_evant('created', event.src_path)
+            handle_file_event('created', event.src_path)
 
     def on_modified(self, event):
         if not event.is_directory and self._is_music_file(event.src_path):
-            # 防抖：避免编辑器保持多次触发
+            # Debounce：avoid multiple events triggered by a single change
             time.sleep(1)
             logger.info(f'File modified: {event.src_path}')
-            handle_file_evant('modified', event.src_path)
+            handle_file_event('modified', event.src_path)
 
     def on_deleted(self, event):
         if not event.is_directory and self._is_music_file(event.src_path):
             logger.info(f'File deleted: {event.src_path}')
-            handle_file_evant('deleted', event.src_path)
+            handle_file_event('deleted', event.src_path)
 
 def _run_watcher():
     global observer

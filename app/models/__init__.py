@@ -16,11 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 from datetime import datetime
 
 class Base(AsyncAttrs, DeclarativeBase):
-    """异步兼容的基类"""
+    """base model of async sqlalchemy model"""
     pass
 
 class DateTimeMixin:
-    """时间戳字段混入模型"""
+    """datetime mixin model"""
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -43,4 +43,4 @@ from .artist import Artist
 from .album import Album
 from .genre import Genre
 from .user import User
-from .playback import Playlist, TrackHit, TrackFav, ArtistFav, PlaylistTrack
+from .playback import Playlist, TrackHit, TrackFav, ArtistFav, PlaylistTrack, PlaylistHit, SyncMeta

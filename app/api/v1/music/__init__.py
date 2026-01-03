@@ -10,13 +10,15 @@
 
 
 from fastapi import APIRouter
-from . import albums, artists, folders, genres, tracks, artwork
+from app.core.deps import COMMON_DEPS
+from . import album, artist, folder, genre, track, playlist, transfer
 
-music_router = APIRouter()
+music_router = APIRouter(dependencies=COMMON_DEPS)
 
-music_router.include_router(albums.router, prefix='/album', tags=['music_albums'])
-music_router.include_router(artists.router, prefix='/artist', tags=['music_artists'])
-music_router.include_router(folders.router, prefix='/folder', tags=['music_folders'])
-music_router.include_router(genres.router, prefix='/genre', tags=['music_genres'])
-music_router.include_router(tracks.router, prefix='/track', tags=['music_tracks'])
-music_router.include_router(artwork.router, prefix='/artwork', tags=['music_artwork'])
+music_router.include_router(album.router, prefix='/album', tags=['music_albums'])
+music_router.include_router(artist.router, prefix='/artist', tags=['music_artists'])
+music_router.include_router(folder.router, prefix='/folder', tags=['music_folders'])
+music_router.include_router(genre.router, prefix='/genre', tags=['music_genres'])
+music_router.include_router(track.router, prefix='/track', tags=['music_tracks'])
+music_router.include_router(playlist.router, prefix='/playlist', tags=['music_playlists'])
+music_router.include_router(transfer.router, prefix='/transfer', tags=['music_transfer'])
