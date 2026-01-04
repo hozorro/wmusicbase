@@ -9,14 +9,20 @@
 '''
 
 
-from fastapi import UploadFile
+from fastapi import UploadFile, Form, File
 from pydantic import BaseModel,RootModel, Field
 from .common import ArtistBase, ArtistBrief, AlbumBase, TrackBrief
 
-class ArtistArtUpload(BaseModel):
+class ArtistArtCreate(BaseModel):
     id: int
     art_type: str
-    file: UploadFile
+    art: UploadFile
+async def artist_art_upload_from_form(
+    id: int = Form(..., description='Artist id'),
+    art_type: str = Form(..., description='Art type'),
+    art: UploadFile = File(...)
+):
+    return ArtistArtCreate(id=id, art_type=art_type, art=art)
 
 # response models
 class ArtistsResponse(RootModel):

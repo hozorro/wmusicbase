@@ -9,15 +9,20 @@
 '''
 
 
-from fastapi import UploadFile
+from fastapi import UploadFile, Form, File
 from pydantic import BaseModel, model_validator
 from .common import AlbumBase, ArtistBase, TrackBrief
 from .track import TrackDetail
 from typing import Any
 
-class AlbumArtUpload(BaseModel):
+class AlbumArtCreate(BaseModel):
     id: int
     file: UploadFile
+async def album_art_upload_from_form(
+    id: int = Form(..., description='Album id'),
+    file: UploadFile = File(...)
+) -> AlbumArtCreate:
+    return AlbumArtCreate(id=id, file=file)
 
 # album response
 class AlbumResponse(AlbumBase):

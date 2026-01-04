@@ -12,8 +12,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.schemas.filething import UpdateMetaTagList
-from app.schemas.artist import StartCharsResponse, ArtistsResponse, ArtistResponse, ArtistArtUpload
-from app.schemas.album import AlbumResponse, AlbumArtUpload
+from app.schemas.artist import StartCharsResponse, ArtistsResponse, ArtistResponse, ArtistArtCreate, artist_art_upload_from_form
+from app.schemas.album import AlbumResponse, AlbumArtCreate, album_art_upload_from_form
 from app.core.deps import ADMIN_DEPS
 from app.core.exceptions import BusinessException
 from app.services.artwork_service import ArtworkService
@@ -48,7 +48,7 @@ async def get_album(album_id: int, service: AlbumService = Depends(AlbumService)
     return ResponseModel(data=AlbumResponse.model_validate(album))
 
 @router.post('/uploadartistart', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
-async def upload_artist_art(item: ArtistArtUpload = Depends(), service: ArtworkService = Depends(ArtworkService)):
+async def upload_artist_art(item: ArtistArtCreate = Depends(artist_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
     if item.file.content_type not in ['image/jpeg', 'image/png']:
         raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
     try:
@@ -59,7 +59,7 @@ async def upload_artist_art(item: ArtistArtUpload = Depends(), service: ArtworkS
     return ResponseModel(data=SuccessMsgModel())
 
 @router.post('/uploadalbumart', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
-async def upload_album_art(item: AlbumArtUpload = Depends(), service: ArtworkService = Depends(ArtworkService)):
+async def upload_album_art(item: AlbumArtCreate = Depends(album_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
     if item.file.content_type not in ['image/jpeg', 'image/png']:
         raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
     try:
