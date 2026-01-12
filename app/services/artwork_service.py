@@ -9,7 +9,7 @@
 '''
 
 
-import re, aiofiles
+import re, aiofiles, hashlib
 from pathlib import Path
 from fastapi import UploadFile
 from sqlalchemy import select, func
@@ -276,7 +276,7 @@ class ArtworkService:
         
         # try 3：use default image
         default_img = self.settings.ARTIST_ARTWORK_DIR / ('default_face.jpg' if img_cate == 'face' 
-                                                        else self.settings.ARTIST_ARTWORK_DIR / 'default_portrait.jpg')
+                                                        else 'default_portrait.jpg')
         if default_img.exists(): 
             cache_path = await self._save_artwork_to_cache(artist_id, 'artist', default_img, img_cate)
             if cache_path: return cache_path
@@ -300,11 +300,12 @@ class ArtworkService:
             # async write file
             async with aiofiles.open(img_path, 'wb') as f: 
                 await f.write(content)
-            cache_path = self.settings.ARTIST_ARTWORK_DIR / f'{artist.id}_{img_cate}.jpg'
-            cache_path.unlink(missing_ok=True)
+            self.invalidate_artwork_cache(artist.id, 'artist', img_cate)
         else: 
             img_path = self._save_artwork_to_cache(artist.id, 'artist', content, img_cate)
-        
+        cover_art_hash = hashlib.sha1(content).hexdigest()
+        artist.cover_art_hash = cover_art_hash
+        await self.db.commit()
         return img_path
 
     def has_album_directory(self, album: Album) -> bool:
@@ -404,14 +405,15 @@ class ArtworkService:
             async with aiofiles.open(img_path, 'wb') as f: 
                 await f.write(content)
             # clear cache（ensure getting the latest cover at next request）
-            cache_path = self.settings.ALBUM_ARTWORK_DIR / f'{album.id}.jpg'
-            cache_path.unlink(missing_ok=True)
+            self.invalidate_artwork_cache(album.id, 'album')
         else: 
             img_path = self._save_artwork_to_cache(album.id, 'album', content)
-
+        cover_art_hash = hashlib.sha1(content).hexdigest()
+        album.cover_art_hash = cover_art_hash
+        await self.db.commit()
         return img_path
     
-    async def get_or_cache_playlist_artwork(self, playlist_id: int) -> Path | None:
+    async def get_or_cache_playlist_artwork(self, playlist_id: int | str) -> Path | None:
         '''get or cache playlist artwork'''
         cache_path = self.settings.PLAYLIST_ARTWORK_DIR / f'{playlist_id}.jpg'
         if cache_path.exists(): 
@@ -425,4 +427,7 @@ class ArtworkService:
             raise Exception('playlist not found')
         content= await image_file.read()
         img_path = await self._save_artwork_to_cache(playlist_id, 'playlist', content)
+        cover_art_hash = hashlib.sha1(content).hexdigest()
+        playlist.cover_art_hash = cover_art_hash
+        await self.db.commit()
         return img_path

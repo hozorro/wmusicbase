@@ -65,6 +65,7 @@ class Playlist(Base, DateTimeMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
     comment: Mapped[str | None]
+    cover_art_hash: Mapped[str | None] = mapped_column(String(40), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
 

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from . import Artist, Track
 
-from sqlalchemy import ForeignKey, UniqueConstraint
+from sqlalchemy import ForeignKey, UniqueConstraint, String, Index
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from . import Base, DateTimeMixin
 
@@ -23,10 +23,14 @@ class Album(Base, DateTimeMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str]
     year: Mapped[int | None]
+    cover_art_hash: Mapped[str | None] = mapped_column(String(40), index=True)
     mb_albumid: Mapped[str | None] = mapped_column(index=True)
     album_artist_id: Mapped[int | None] = mapped_column(ForeignKey('artists.id', ondelete='SET NULL'))
 
     album_artist: Mapped[Optional['Artist']] = relationship('Artist', back_populates='albums_as_main')
     tracks: Mapped[list['Track']] = relationship('Track', back_populates='album')
 
-    __table_args__ = (UniqueConstraint('title', 'album_artist_id', name='uq_album_title_artist'),)
+    __table_args__ = (
+        Index('ix_albums_has_cover', 'cover_art_hash'),
+        UniqueConstraint('title', 'album_artist_id', name='uq_album_title_artist'),
+    )

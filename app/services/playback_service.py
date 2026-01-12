@@ -98,7 +98,7 @@ class PlaylistService:
             await self.db.refresh(playlist)
             logger.info(f"playlist successfully created: ID={playlist.id}, title={playlist.title}, track count={len(tracks)}")
             syncer = Syncer(self.db, self.settings)
-            await syncer.update_playback_sync_meta('playlist')
+            await syncer.update_playback_sync_meta('playlist', self.current_user_id)
             
             if missing:
                 msg = f"partially success: title={playlist.title}, track count={len(tracks)}, some track not exist in db or be deleted: {', '.join(missing)}"
@@ -192,7 +192,7 @@ class PlaylistService:
     async def get_top_playlists(self, limit: int = 6) -> list[dict]:
         '''get the most played playlists'''
         stmt = (
-            select(Playlist.id, Playlist.title, func.count(PlaylistHit.id).label('hit_count') )
+            select(Playlist.id, Playlist.title, Playlist.cover_art_hash, func.count(PlaylistHit.id).label('hit_count') )
             .outerjoin(PlaylistHit, PlaylistHit.playlist_id == Playlist.id)
             .where(Playlist.user_id == self.current_user_id)
             .group_by(Playlist.id)
@@ -200,7 +200,7 @@ class PlaylistService:
             .limit(limit)
         )
         result = await self.db.execute(stmt)
-        playlists = [{'id': id, 'title': title} for id, title, _ in result.all()]
+        playlists = [{'id': id, 'title': title, 'cover_art_hash': cover_art_hash} for id, title, cover_art_hash, _ in result.all()]
         return playlists
     
     async def get_user_playlists(self) -> list[dict]:
@@ -223,7 +223,7 @@ class PlaylistService:
                 joinedload(Playlist.user).load_only(User.username),
                 selectinload(Playlist.tracks)
                 .options(
-                    load_only(Track.id, Track.title),
+                    load_only(Track.id, Track.title, Track.cover_art_hash),
                     selectinload(Track.artists).load_only(Artist.name)
                 )
             )

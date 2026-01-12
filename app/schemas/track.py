@@ -15,8 +15,7 @@ from app.models.track import Track
 from .common import TrackBase, TrackBrief, TrackMedium, AlbumBase
 
 class TrackFavRequest(BaseModel):
-    is_favorited: bool = Field(..., title='Is Favorited')
-    favorited_at: datetime | None = None
+    is_favorited: bool = Field(..., title='Is favorited')
 
 class TrackBaseResponse(RootModel):
     root: list[TrackBase] = Field(..., title='Tracks')
@@ -27,7 +26,7 @@ class TrackBriefsResponse(RootModel):
 class TrackInfoResponse(TrackMedium):
     album: AlbumBase
     hit_count: int
-    is_favorited: bool
+    favorited_at: datetime | None = None
 
 class TrackMoreInfoResponse(TrackBase):
     duration: float | None
@@ -37,20 +36,9 @@ class TrackMoreInfoResponse(TrackBase):
     acoustid_id: str | None
     mb_trackid: str | None
     path: str
-    hits: list[datetime] = Field([], title='Hits')
 
-    @model_validator(mode='before')
-    @classmethod
-    def hits(cls, data: Track):
-        if hasattr(data, 'play_hits'):
-            data.hits = [hit.played_at for hit in data.play_hits]
-        if isinstance(data, dict):
-            if 'play_hits' in data:
-                data['hits'] = [hit.played_at for hit in data['play_hits']]
-        return data
-
-class TrackFavResponse(BaseModel):
-    is_favorited: bool = Field(..., title='Is Favorited')
+class TrackFavResponse(RootModel):
+    root: datetime | None = Field(None, title='Is Favorited')
 
 class TrackDetail(TrackBase):
     artists: list[str]

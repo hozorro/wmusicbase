@@ -37,7 +37,7 @@ async def get_album_artwork(album_id: int, service: ArtworkService = Depends(Art
     raise HTTPException(status_code=404, detail='Album artwork not Found')
 
 @router.get('/playlist/{playlist_id}', tags=['artwork'])
-async def get_playlist_artwork(playlist_id: int, service: ArtworkService = Depends(ArtworkService)):
+async def get_playlist_artwork(playlist_id: int | str, service: ArtworkService = Depends(ArtworkService)):
     cache_path = await service.get_or_cache_playlist_artwork(playlist_id)
     if cache_path: 
         return FileResponse(cache_path)

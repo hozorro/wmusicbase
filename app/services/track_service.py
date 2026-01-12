@@ -10,9 +10,9 @@
 
 
 import aiofiles, requests
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import Request, HTTPException
-from sqlalchemy import select, func, exists, desc, nulls_last, case
+from sqlalchemy import select, func, desc, nulls_last, delete
 from sqlalchemy.orm import selectinload, load_only, joinedload
 from app.core.deps import SettingsDep, DbDep
 from app.core.logger import logger
@@ -80,25 +80,23 @@ class TrackService:
         fav_subq = (
             select(
                 TrackFav.track_id,
-                case(
-                    ((exists().where(
-                        TrackFav.track_id == track_id,
-                        TrackFav.user_id == self.current_user_id
-                    ), True)), else_=False
-                ).label('is_favorited')
+                TrackFav.favorited_at,
+            ).where(
+                TrackFav.track_id == track_id, 
+                TrackFav.user_id == self.current_user_id
             ).subquery()
         )
         stmt = (
             select(
                 Track,
                 func.coalesce(hit_subq.c.hit_count, 0).label('hit_count'),
-                func.coalesce(fav_subq.c.is_favorited, False).label('is_favorited')
+                func.coalesce(fav_subq.c.favorited_at, None).label('favorited_at')
             )
             .outerjoin(hit_subq, Track.id == hit_subq.c.track_id)
             .outerjoin(fav_subq, Track.id == fav_subq.c.track_id)
             .where(Track.id == track_id, Track.is_deleted == False)
             .options(
-                load_only(Track.id, Track.title, Track.duration),
+                load_only(Track.id, Track.title, Track.duration, Track.cover_art_hash),
                 selectinload(Track.artists).load_only(Artist.id, Artist.name),
                 joinedload(Track.album).load_only(Album.id, Album.title),
             )
@@ -108,17 +106,13 @@ class TrackService:
         if not row:
             return None
         
-        track, hit_count, is_favorited = row
+        track, hit_count, favorited_at = row
         track.hit_count = hit_count
-        track.is_favorited = is_favorited
+        track.favorited_at = favorited_at
         return track
     
     async def get_track_more_info(self, track_id: int) -> Track | None:
-        stmt = select(Track).where(Track.id == track_id).options(
-            selectinload(Track.play_hits.and_(TrackHit.user_id == 1)).options(
-                load_only(TrackHit.played_at)
-            ),
-        )
+        stmt = select(Track).where(Track.id == track_id)
         result = await self.db.execute(stmt)
         track = result.scalar_one_or_none()
         if not track:
@@ -128,8 +122,11 @@ class TrackService:
     async def get_random_tracks(self, limit: int = 20) -> list[Track]:
         '''get random tracks'''
         stmt = (
-            select(Track.id, Track.title)
-            .options(selectinload(Track.artists).load_only(Artist.name))
+            select(Track)
+            .options(
+                load_only(Track.id, Track.title),
+                selectinload(Track.artists).load_only(Artist.name)
+            )
             .where(Track.is_deleted == False)
             .order_by(func.random())
             .limit(limit)
@@ -141,7 +138,9 @@ class TrackService:
     async def get_artist_random_tracks(self, artist_id: int, limit: int = 20) -> list[Track]:
         '''get random tracks of an artist'''
         stmt = (
-            select(Track).load_only(Track.id, Track.title)
+            select(Track).options(
+                load_only(Track.id, Track.title),
+            )
             .join(track_artists, Track.id == track_artists.c.track_id)
             .where(track_artists.c.artist_id == artist_id, Track.is_deleted == False)
             .order_by(func.random())
@@ -154,7 +153,9 @@ class TrackService:
     async def get_genre_random_tracks(self, genre_id: int, limit: int = 20) -> list[Track]:
         '''get random tracks of an genre'''
         stmt = (
-            select(Track).load_only(Track.id, Track.title)
+            select(Track).options(
+                load_only(Track.id, Track.title),
+            )
             .join(track_genres, Track.id == track_genres.c.track_id)
             .where(Track.is_deleted == False, track_genres.c.genre_id == genre_id)
             .order_by(func.random())
@@ -197,7 +198,7 @@ class TrackService:
             )
             .limit(limit)
             .options(
-                load_only(Track.id, Track.title),
+                load_only(Track.id, Track.title, Track.cover_art_hash),
                 selectinload(Track.artists).load_only(Artist.name),
             )
         )
@@ -214,7 +215,7 @@ class TrackService:
             .order_by(Track.created_at.desc())
             .limit(num)
             .options(
-                load_only(Track.id, Track.title),
+                load_only(Track.id, Track.title, Track.cover_art_hash),
                 selectinload(Track.artists).load_only(Artist.name),
             )
         )
@@ -222,34 +223,26 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def favorite_track(self, track_id: int, favorited_at: datetime | None = None) -> TrackFav | None:
-        '''favorite a track'''
-        existing_fav = await self.db.execute(
-            select(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
-        )
-        if existing_fav.scalar_one_or_none():
-            return None  # favorited
-
-        new_fav = TrackFav(user_id=self.current_user_id, track_id=track_id)
-        if favorited_at:
+    async def favorite_track(self, track_id: int, is_favorited: bool) -> datetime | None:
+        '''favorite or unfavorite a track'''
+        favorited_at = None
+        if is_favorited:
+            existing_fav = await self.db.execute(
+                select(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
+            )
+            if existing_fav.scalar_one_or_none():
+                return True  # already favorited
+            new_fav = TrackFav(user_id=self.current_user_id, track_id=track_id)
+            favorited_at = datetime.now(timezone.utc)
             new_fav.favorited_at = favorited_at
-        self.db.add(new_fav)
+            self.db.add(new_fav)
+        else:
+            await self.db.execute(
+                delete(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
+            )
         await self.db.commit()
-        return True
+        return favorited_at
     
-    async def unfavorite_track(self, track_id: int) -> bool:
-        '''unfavorite a track'''
-        existing_fav = await self.db.execute(
-            select(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
-        )
-        fav = existing_fav.scalar_one_or_none()
-        if not fav:
-            return False  # already not favorited
-
-        await self.db.delete(fav)
-        await self.db.commit()
-        return False
-
     async def _get_album_tracks(self, album_id: int) -> list[Track]:
         '''get album tracks'''
         result = await self.db.execute(

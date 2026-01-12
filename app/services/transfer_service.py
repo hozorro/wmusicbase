@@ -87,6 +87,7 @@ class TransferService:
                 Artist.id, 
                 Artist.name, 
                 Artist.pinyin_initial, 
+                Artist.cover_art_hash,
                 func.count(Track.id).label('track_count'), 
             ).select_from(Artist)
             .outerjoin(track_artists, Artist.id == track_artists.c.artist_id)
@@ -100,8 +101,9 @@ class TransferService:
             'id': id,
             'name': name,
             'pinyin_initial': pinyin_initial,
+            'cover_art_hash': cover_art_hash,
             'track_count': track_count,
-        } for (id, name, pinyin_initial, track_count) in result.all()]
+        } for (id, name, pinyin_initial, cover_art_hash, track_count) in result.all()]
         return artists
 
     async def transfer_folders(self, last_sync: datetime, page_num: int = 1, page_size: int = 100, ) -> list[Folder]:
@@ -212,7 +214,7 @@ class TransferService:
             await self.db.commit()
 
         syncer = Syncer(self.db, self.settings)
-        await syncer.update_playback_sync_meta('trackhit')
+        await syncer.update_playback_sync_meta('trackhit', self.current_user_id)
 
         return len(new_hits)
 
@@ -283,7 +285,7 @@ class TransferService:
         await self.db.commit()
 
         syncer = Syncer(self.db, self.settings)
-        await syncer.update_playback_sync_meta('trackfav')
+        await syncer.update_playback_sync_meta('trackfav', self.current_user_id)
 
         return len(added) + len(removed)
 
@@ -316,7 +318,7 @@ class TransferService:
         await self.db.commit()
 
         syncer = Syncer(self.db, self.settings)
-        await syncer.update_playback_sync_meta('artistfav')
+        await syncer.update_playback_sync_meta('artistfav', self.current_user_id)
 
         return len(added) + len(removed)
 
@@ -358,7 +360,7 @@ class TransferService:
             await self.db.commit()
 
         syncer = Syncer(self.db, self.settings)
-        await syncer.update_playback_sync_meta('playlisthit')
+        await syncer.update_playback_sync_meta('playlisthit', self.current_user_id)
 
         return len(new_hits)
 
@@ -437,7 +439,7 @@ class TransferService:
         await self.db.commit()
 
         syncer = Syncer(self.db, self.settings)
-        await syncer.update_playback_sync_meta('playlist')
+        await syncer.update_playback_sync_meta('playlist', self.current_user_id)
 
         return {'total': len(playlists.root), 'updated': updated, 'created': created}
 

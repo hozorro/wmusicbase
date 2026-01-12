@@ -57,6 +57,7 @@ class AlbumBase(BaseModel):
 
     id: int
     title: str
+    cover_art_hash: str | None = None
 
 #==== Artist ====
 class ArtistBase(BaseModel):
@@ -64,6 +65,7 @@ class ArtistBase(BaseModel):
 
     id: int
     name: str
+    cover_art_hash: str | None = None
 
 class ArtistBrief(ArtistBase):
     pinyin_initial: str
@@ -94,6 +96,7 @@ class PlaylistBase(BaseModel):
 
     id: int
     title: str
+    cover_art_hash: str | None = None
 
 #==== Track ====
 class TrackBase(BaseModel):
@@ -101,6 +104,7 @@ class TrackBase(BaseModel):
 
     id: int
     title: str
+    cover_art_hash: str | None = None
 
 class TrackBrief(TrackBase):
     artists: list[str]  # artist_names list

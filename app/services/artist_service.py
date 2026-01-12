@@ -65,7 +65,7 @@ class ArtistService:
         track_albums = []   # not as album artist
         result = await self.db.execute(select(subq))
         for row in result:
-            album = Album(id=row.id, title=row.title)
+            album = Album(id=row.id, title=row.title, cover_art_hash=row.cover_art_hash)
             if row.album_type == 'main':
                 main_albums.append(album)
             else:
@@ -101,7 +101,7 @@ class ArtistService:
             )
             .limit(top_count)
             .options(
-                load_only(Track.id, Track.title),
+                load_only(Track.id, Track.title, Track.cover_art_hash),
                 selectinload(Track.artists).load_only(Artist.name),
             )
         )
@@ -158,7 +158,7 @@ class ArtistService:
             .order_by(desc(func.count(TrackHit.id)))
             .limit(6)
             .options(
-                load_only(Artist.id, Artist.name)
+                load_only(Artist.id, Artist.name, Artist.cover_art_hash)
             )
         )
         result_6 = await self.db.execute(stmt)
@@ -178,7 +178,7 @@ class ArtistService:
             .join(ArtistFav, Artist.id == ArtistFav.artist_id)
             .where(ArtistFav.user_id == self.current_user_id)
             .options(
-                load_only(Artist.id, Artist.name)
+                load_only(Artist.id, Artist.name, Artist.cover_art_hash)
             )
         )
         result = await self.db.execute(stmt)

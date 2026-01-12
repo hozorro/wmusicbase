@@ -16,7 +16,7 @@ from app.services.track_service import TrackService
 
 router = APIRouter()
 
-@router.get('/signed-url/{track_id}', response_model=ResponseModel[StrResponse])
+@router.get('/signed-url/{track_id:int}', response_model=ResponseModel[StrResponse])
 async def get_signed_url(track_id: int, service: TrackService = Depends(TrackService)):
     signed_url = await service.create_signed_url(track_id)
     return ResponseModel(data=StrResponse(signed_url))
@@ -60,28 +60,24 @@ async def get_most_played_tracks(num: int | None = 12, service: TrackService = D
     tracks = await service.get_most_played_tracks(num)
     return ResponseModel(data=TrackBriefsResponse(tracks))
 
-@router.put('/favorite/{track_id}', response_model=ResponseModel[TrackFavResponse])
+@router.put('/favorite/{track_id:int}', response_model=ResponseModel[TrackFavResponse])
 async def favorite_track(track_id: int, fav_data: TrackFavRequest, service: TrackService = Depends(TrackService)):
-    if fav_data.is_favorited:
-        result = await service.favorite_track(track_id, fav_data.favorited_at)
-    else:
-        result = await service.unfavorite_track(track_id)
+    result = await service.favorite_track(track_id, fav_data.is_favorited)
+    return ResponseModel(data=TrackFavResponse(result))
 
-    return ResponseModel(data=TrackFavResponse(is_favorited=result))
-
-@router.get('/collection/{collection_type}/{collection_id}', response_model=ResponseModel[TrackBaseResponse])
+@router.get('/collection/{collection_type}/{collection_id:int}', response_model=ResponseModel[TrackBaseResponse])
 async def get_collection_tracks(collection_type: str, collection_id: int, service: TrackService = Depends(TrackService)):
     tracks = await service.get_collection_tracks(collection_type, collection_id)
     return ResponseModel(data=TrackBaseResponse(tracks))
 
-@router.get('/lyric/{track_id}', response_model=ResponseModel[LyricResponse])
+@router.get('/lyric/{track_id:int}', response_model=ResponseModel[LyricResponse])
 async def get_lyric(track_id: int, service: TrackService = Depends(TrackService)):
     lyric = await service.get_lyric(track_id)
     if lyric: 
         return ResponseModel(data=LyricResponse(lyric))
     return ResponseModel(data=LyricResponse(''))
 
-@router.delete('/lyric/{track_id}', response_model=ResponseModel[SuccessMsgModel])
+@router.delete('/lyric/{track_id:int}', response_model=ResponseModel[SuccessMsgModel])
 async def delete_lyric(track_id: int, service: TrackService = Depends(TrackService)):
     await service.delete_lyric(track_id)
     return ResponseModel(data=SuccessMsgModel())

@@ -10,7 +10,7 @@
 
 
 from datetime import datetime, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.models import *
@@ -121,7 +121,7 @@ class Syncer:
         
         await self.db.commit()
 
-    async def update_playback_sync_meta(self, model_name: str):
+    async def update_playback_sync_meta(self, model_name: str, user_id: int):
         model_map = {
             'trackhit': TrackHit,
             'playlisthit': PlaylistHit,
@@ -133,17 +133,19 @@ class Syncer:
 
         latest_time = datetime.now(tz=timezone.utc)
 
-        stmt = select(func.count(model.id))
+        stmt = select(func.count(model.user_id))
+        conditions = [model.user_id == user_id]
         if model_name == 'playlist':
-            stmt = stmt.where(model.is_deleted == False)
+            conditions.append(model.is_deleted == False)
+        stmt = stmt.where(and_(*conditions))
         total_count = await self.db.scalar(stmt) or 0
 
-        meta = await self.db.scalar(select(SyncMeta).where(SyncMeta.model_name == model_name))
+        meta = await self.db.scalar(select(SyncMeta).where(SyncMeta.model_name == model_name, SyncMeta.user_id == user_id))
         if meta:
             meta.last_update = latest_time
             meta.total_count = total_count
         else:
-            meta = SyncMeta(model_name=model_name, last_update=latest_time, total_count=total_count)
+            meta = SyncMeta(model_name=model_name, last_update=latest_time, total_count=total_count, user_id=user_id)
             self.db.add(meta)
         
         await self.db.commit()
