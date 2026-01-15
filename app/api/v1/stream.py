@@ -9,16 +9,17 @@
 '''
 
 
+import os, mimetypes
 from itsdangerous import BadSignature, SignatureExpired
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import Response
 from app.services.file_service import StreamService
-from app.utils.signer import signer
+from app.utils.streaming import signer, parse_range
 
 router = APIRouter()
 
-@router.get('/{track_id}', response_class=StreamingResponse)
-async def stream_track(track_id: int, token: str, service: StreamService = Depends(StreamService)):
+@router.get('/{track_id}', response_class=Response)
+async def stream_track(track_id: int, token: str, request: Request, service: StreamService = Depends(StreamService)):
     try:
         raw = signer.unsign(token, max_age=600).decode()
     except SignatureExpired:
@@ -37,9 +38,36 @@ async def stream_track(track_id: int, token: str, service: StreamService = Depen
     if not track_file:
         raise HTTPException(status_code=404, detail='Track not found')
     
-    def iter_file():
-        with open(track_file, 'rb') as f:
-            while chunk := f.read(1024 * 1024):
-                yield chunk
+    file_size = os.path.getsize(track_file)
+    mime_type, _ = mimetypes.guess_type(track_file)
+    mime_type = mime_type or 'audio/mpeg'
 
-    return StreamingResponse(iter_file(), media_type='audio/mpeg')
+    range_header = request.headers.get('Range')
+
+    # range request from safari / chrome
+    if range_header:
+        start, end = parse_range(range_header, file_size)
+        chunk_size = end - start + 1
+
+        with open(track_file, 'rb') as f:
+            f.seek(start)
+            data = f.read(chunk_size)
+
+        headers = {
+            'Content-Range': f'bytes {start}-{end}/{file_size}',
+            'Content-Length': str(chunk_size),
+            'Accept-Ranges': 'bytes',
+            'Content-Type': mime_type
+        }
+
+        return Response(data, status_code=206, headers=headers)
+    
+    # request without range(first load)
+    with open(track_file, 'rb') as f:
+        data = f.read()
+    headers = {
+        'Content-Length': str(file_size),
+        'Accept-Ranges': 'bytes',
+        'Content-Type': mime_type
+    }
+    return Response(data, status_code=200, headers=headers)

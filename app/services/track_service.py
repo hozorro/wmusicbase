@@ -18,7 +18,7 @@ from app.core.deps import SettingsDep, DbDep
 from app.core.logger import logger
 from app.models import Track, track_artists, track_genres, Artist, Album, TrackFav, TrackHit, PlaylistTrack
 from app.utils.audiofile import AudioMeta
-from app.utils.signer import signer
+from app.utils.streaming import signer
 
 class TrackService:
     def __init__(self, db: DbDep, settings: SettingsDep, request: Request):
@@ -97,8 +97,8 @@ class TrackService:
             .where(Track.id == track_id, Track.is_deleted == False)
             .options(
                 load_only(Track.id, Track.title, Track.duration, Track.cover_art_hash),
-                selectinload(Track.artists).load_only(Artist.id, Artist.name),
-                joinedload(Track.album).load_only(Album.id, Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.cover_art_hash),
+                joinedload(Track.album).load_only(Album.id, Album.title, Album.cover_art_hash),
             )
         )
         result = await self.db.execute(stmt)

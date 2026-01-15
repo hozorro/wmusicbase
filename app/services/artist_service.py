@@ -34,7 +34,13 @@ class ArtistService:
         return start_chars
     
     async def get_start_char_artists(self, start_char: str, without_path: bool = False) -> list[dict]:
-        result = await self.db.execute(select(Artist).filter(Artist.pinyin_initial == start_char).options(load_only(Artist.id, Artist.name, Artist.pinyin_initial)))
+        result = await self.db.execute(
+            select(Artist)
+            .filter(Artist.pinyin_initial == start_char)
+            .options(
+                load_only(Artist.id, Artist.name, Artist.pinyin_initial, Artist.cover_art_hash)
+            )
+        )
         artists = result.scalars().all()
         if without_path:
             service = ArtworkService(self.db, self.settings)
