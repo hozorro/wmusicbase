@@ -13,8 +13,7 @@ import json
 from io import StringIO
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from app.core.deps import SettingsDep
-from app.core.deps import ADMIN_DEPS
+from app.core.deps import SettingsDep, ADMIN_DEPS
 from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.schemas.filething import PlaylistJsonListResponse
@@ -23,7 +22,7 @@ from app.schemas.user import UserListResponse
 from app.services.playback_service import PlaylistService, PlayDataService
 from app.services.user_service import UserService
 
-router = APIRouter(dependencies=ADMIN_DEPS, tags=['backup'])
+router = APIRouter(dependencies=ADMIN_DEPS)
 
 @router.get('/gettempplaylistjsons', response_model=ResponseModel[PlaylistJsonListResponse])
 async def get_temp_playlist_jsons(settings: SettingsDep, service: PlaylistService = Depends(PlaylistService)):

@@ -18,7 +18,7 @@ from app.core.db import retry_deadlock
 from app.models import Genre, Artist, Album, Track, Folder, track_artists, track_genres
 from app.utils.color import generate_unique_light_color
 from app.utils.pinyin import get_artist_sort_fields
-from app.utils.metadata import extract_metadata, extract_cover_art_hash
+from app.utils.metadata import parse_metadata, extract_cover_art_hash
 from typing import Any
 
 class MusicFileProcessor:
@@ -212,7 +212,7 @@ class MusicFileProcessor:
         if file_path in self.processed_files: 
             return True
 
-        meta = extract_metadata(file_path)
+        meta = parse_metadata(file_path)
         if not meta: 
             self.logger.warning(f'❌Failed to extract metadata from {file_path}')
             return False

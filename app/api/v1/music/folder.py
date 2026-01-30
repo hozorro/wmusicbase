@@ -10,12 +10,11 @@
 
 
 from fastapi import APIRouter, Depends
-from app.core.deps import COMMON_DEPS
 from app.schemas.common import ResponseModel
 from app.schemas.folder import FolderResponse
 from app.services.folder_service import FolderService
 
-router = APIRouter(dependencies=COMMON_DEPS)
+router = APIRouter()
 
 @router.get('/{folder_id}', response_model=ResponseModel[FolderResponse])
 async def get_folder(folder_id: int, service: FolderService = Depends(FolderService)):

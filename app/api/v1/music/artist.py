@@ -14,7 +14,7 @@ from app.schemas.common import ResponseModel
 from app.schemas.artist import ArtistsResponse, ArtistBriefListResponse, StartCharsResponse, ArtistDetailResponse
 from app.services.artist_service import ArtistService
 
-router = APIRouter(tags=['artists'])
+router = APIRouter()
 
 @router.get('/tenartists', response_model=ResponseModel[ArtistsResponse])
 async def get_ten_artists(service: ArtistService = Depends(ArtistService)):

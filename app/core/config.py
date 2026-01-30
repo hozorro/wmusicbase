@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     # ======= ==== Security config =============
     SECRET_KEY: str = Field(..., description='JWT key(MUST randomly generated in production)')
     ACOUSTID_API_KEY: str = Field(..., description='AcoustID dev api-key(from acoustid.org)')
+    PROXY_API_URL: str = Field('', description='Proxy api url(MUST be set in production)')
+    PROXY_API_KEY: str = Field(..., description='Proxy api key(MUST be set in production)')
 
     # =========== Music library config =========
     MUSIC_LIBRARY_PATH: Path = Field(default=PROJECT_ROOT / 'music_library', description='Music library root directory(can be overridden by environment variables)')
@@ -112,6 +114,11 @@ class Settings(BaseSettings):
         '''playlist artwork dir'''
         return self.ARTWORK_DIR / 'playlists'
     
+    @property
+    def TMP_ARTWORK_DIR(self) -> Path:
+        '''tmp artwork dir'''
+        return self.ARTWORK_DIR / 'tmp'
+    
     @field_validator('MEDIA_ROOT', 'LOG_DIR', mode='before')
     @classmethod
     def convert_str_to_path(cls, v: Path | str) -> Path | None:
@@ -133,6 +140,10 @@ class Settings(BaseSettings):
 
     # ========== Lyric config ===========
     LYRIC_OUT_BASE_URL:str = Field('http://localhost:28883/api/v1/lyrics/', description='lyric server address base url')
+
+    # ========== Other variables ========
+    MAX_UPDATE_META_BATCH_COUNT: int = Field(20, description='max batch count of items to update metadata')
+    MAX_META_COVER_SIZE: int = Field(1024 * 1024 * 1, description='max size of cover art')
     
 settings = Settings()
 
@@ -147,6 +158,7 @@ def create_required_directories():
         settings.ALBUM_ARTWORK_DIR,
         settings.ARTIST_ARTWORK_DIR,
         settings.PLAYLIST_ARTWORK_DIR,
+        settings.TMP_ARTWORK_DIR
     ]
     for dir_path in dirs_to_create:
         abs_path = dir_path.resolve()

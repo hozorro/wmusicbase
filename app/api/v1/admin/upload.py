@@ -9,9 +9,10 @@
 '''
 
 
-from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends
+import json, gc
+from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends, Request
 from app.services.file_service import FileService, ArchiveService
-from app.core.deps import ADMIN_DEPS, SettingsDep
+from app.core.deps import SettingsDep, ADMIN_DEPS
 from app.core.exceptions import BusinessException
 from app.utils.aidmatch import generate_fingerprint, match_fingerprint
 from app.schemas.common import ResponseModel, CountResponse
@@ -24,10 +25,9 @@ from typing import Annotated
 router = APIRouter(dependencies=ADMIN_DEPS)
 
 @router.post('/uploadfile', response_model=ResponseModel[FileBase])
-async def upload_file(file: UploadFile, name: Annotated[str | None, Form()] = None):
+async def upload_file(file: UploadFile, name: Annotated[str | None, Form()] = None, service: FileService = Depends(FileService)):
     if file.content_type not in ['audio/mpeg', 'audio/flac']:
         raise HTTPException(status_code=400, detail='Only mp3 and flac files are allowed')
-    service = FileService()
     content = await file.read()
     if name:
         filename = name
@@ -38,8 +38,7 @@ async def upload_file(file: UploadFile, name: Annotated[str | None, Form()] = No
     return ResponseModel(data=FileBase(filename=filename))
 
 @router.post('/staging/session', response_model=ResponseModel[SessionBase])
-async def create_session():
-    service = FileService()
+async def create_session(service: FileService = Depends(FileService)):
     session_id = service.create_staging_session()
     return ResponseModel(data=SessionBase(session_id=session_id))
 
@@ -53,7 +52,7 @@ async def list_staging_sessions(service: FileService = Depends(FileService)):
 async def get_session_files(session_id: str, service: FileService = Depends(FileService)):
     try:
         files = service.list_session_files(session_id)
-        return ResponseModel(data=FileInfoListResponse(files=files))
+        return ResponseModel(data=FileInfoListResponse(files))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail='Session not found')
     except Exception as e:
@@ -90,7 +89,7 @@ async def add_file_to_session(
     # 2. 获取所有文件的信息
     try:
         files = service.list_session_files(session_id, moved)
-        return ResponseModel(data=FileInfoListResponse(files=files))
+        return ResponseModel(data=FileInfoListResponse(files))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Error when get file info: {str(e)}')
     
@@ -112,6 +111,55 @@ async def update_metatags(session_id: str, input: UpdateMetaTagsList, service: F
         return ResponseModel(data=CountResponse(count=len(input.items)))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Error when update metadata: {str(e)}')
+@router.post('/staging/sessions/{session_id}/updatemetadatas', response_model=ResponseModel[CountResponse])
+async def update_metadatas(session_id: str, request: Request, settings: SettingsDep, service: FileService = Depends(FileService)):
+    form_data = await request.form()
+    try:
+        batch_count = int(form_data.get('batch_count', 0))
+        if batch_count <= 0:
+            raise HTTPException(status_code=400, detail='Invalid batch count')
+        if batch_count > settings.MAX_UPDATE_META_BATCH_COUNT:
+            raise HTTPException(status_code=400, detail='Batch count overload')
+    except ValueError:
+        raise HTTPException(status_code=400, detail='Invalid batch count')
+    
+    success_count = 0
+    fail_count = 0
+    fail_details = []
+
+    for k, v in form_data.items():
+        meta_data = None
+        cover = None
+        cover_data = None
+        if k.startswith('meta_'):
+            try:
+                meta_id = k.split('_', 1)[1]
+                try:
+                    meta_data = json.loads(v)
+                except json.JSONDecodeError:
+                    fail_details.append(f'Invalid JSON for meta_id: {meta_id}')
+                    fail_count += 1
+                    continue
+                cover = form_data.get(f'cover_{meta_id}')
+                if cover and not isinstance(cover, str):
+                    if cover.size > settings.MAX_META_COVER_SIZE:
+                        fail_details.append(f'Cover art size exceeds limit for meta_id: {meta_id}')
+                        fail_count += 1
+                        continue
+                    cover_data = await cover.read()
+                    meta_data['cover_art_data'] = cover_data
+                    await cover.close()
+                service.update_file_metatags(session_id, meta_id, meta_data)
+                success_count += 1
+            except Exception as e:
+                fail_count += 1
+                fail_details.append(f'Error when update metadata: {str(e)[:100]}')
+            finally:
+                del meta_data, cover, cover_data
+                gc.collect()
+    if success_count != batch_count:
+        raise BusinessException(code=1002, msg='partial success', detail='\n'.join(fail_details))
+    return ResponseModel(data=CountResponse(count=success_count))
 
 @router.post('/staging/sessions/{session_id}/archive', response_model=ResponseModel[ArchiveResponse])
 async def archive_session_route(

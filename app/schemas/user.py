@@ -36,3 +36,6 @@ class TokenData(BaseModel):
 class CurrentUser(BaseModel):
     id: int
     is_admin: bool
+    username: str
+
+    model_config = ConfigDict(frozen=True, from_attributes=True)

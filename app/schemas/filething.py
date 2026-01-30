@@ -9,7 +9,7 @@
 '''
 
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 from typing import Optional
 
 class GeneralOutPut(BaseModel):
@@ -43,7 +43,7 @@ class MetaInfoWithNoArt(BaseModel):
     acoustid_id: str | None
 
 class MetaInfo(MetaInfoWithNoArt):
-    cover_art: str | None
+    cover_art_hash: str | None
 
 class PrimaryInfo(BaseModel):
     title: str | None
@@ -54,7 +54,7 @@ class PrimaryInfo(BaseModel):
 
 class AdditionalInfo(BaseModel):
     albumartist: list[str] | None
-    cover_art: str | None
+    cover_art_hash: str | None
     mb_artistids: list[str | None] | None
     mb_albumartistid: list[str | None] | None
     mb_albumid: str | None
@@ -107,7 +107,7 @@ class UpdateVersion(BaseModel):
 class UpdateVerionList(BaseModel):
     items: list[UpdateVersion]
 
-class UpdateMetaTags(MetaInfoWithNoArt):    # multi tags
+class UpdateMetaTags(MetaInfo):    # multi tags
     id: str
 
 class UpdateMetaTagsList(BaseModel):
@@ -127,8 +127,8 @@ class CreateFingerprint(BaseModel):
     session_id: str
 
 # responses
-class FileInfoListResponse(BaseModel):
-    files: list[FileInfo]
+class FileInfoListResponse(RootModel):
+    root: list[FileInfo]
 
 class ArchiveResponse(BaseModel):
     archived: bool

@@ -41,7 +41,7 @@ class ArtworkService:
 
     async def _save_artwork_to_cache(self, id: int, img_cate: str, cover_data: bytes | Path, additional: str = '') -> Path | None:
         '''save artwork to cache(unified format with jpg, and compressed)'''
-        if img_cate not in ['track', 'artist', 'album', 'playlist']: 
+        if img_cate not in ['track', 'artist', 'album', 'playlist', 'tmp']: 
             logger.error(f'Invalid img_cate: {img_cate}')
             return None
         cache_dir = self.settings.ARTWORK_DIR / f'{img_cate}s'
@@ -431,3 +431,23 @@ class ArtworkService:
         playlist.cover_art_hash = cover_art_hash
         await self.db.commit()
         return img_path
+    
+    async def get_or_cache_tmp_track_artwork(self, file_path: str) -> Path | None:
+        '''
+        get or cache staging track artwork
+        file_path: absolute path of the staging track
+        '''
+        name = Path(file_path).stem
+        cache_path = self.settings.TMP_ARTWORK_DIR / f'{name}.jpg'
+        if cache_path.exists(): 
+            return cache_path
+        
+        image_data = extract_embedded_artwork(file_path)
+        if not image_data: 
+            return None
+        
+        try:
+            img_path = await self._save_artwork_to_cache(name, 'tmp', image_data)
+            return img_path if img_path else None
+        except Exception:
+            logger.error(f'Failed to save artwork for tmp track {file_path}')

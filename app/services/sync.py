@@ -25,8 +25,8 @@ class Syncer:
         initialize sync meta when first start
         only writeable for backend, readonly for frontend
         '''
-        # 1. base models except track
-        for model in [Album, Artist, Folder, Genre]:
+        # 1. base models
+        for model in [Album, Artist, Folder, Genre, Track]:
             stmt = (select(
                 func.coalesce(func.count(model.id).label('count'), 0),
                 func.coalesce(func.max(model.updated_at).label('last_update'), datetime.now(tz=timezone.utc)),
@@ -36,17 +36,8 @@ class Syncer:
             
             meta = SyncMeta(model_name=model.__name__.lower(), last_update=latest_time, total_count=total_count)
             self.db.add(meta)
-        # 2. track
-        stmt = (select(
-            func.coalesce(func.count(Track.id).label('count'), 0),
-            func.coalesce(func.max(Track.updated_at).label('last_update'), datetime.now(tz=timezone.utc)),
-        ))
-        result = await self.db.execute(stmt)
-        total_count, latest_time = result.one()
-        meta = SyncMeta(model_name='track', last_update=latest_time, total_count=total_count)
-        self.db.add(meta)
 
-        # 3. playback
+        # 2. playback
         all_users = (await self.db.execute(select(User.id))).scalars().all()
         if all_users:
             playbacks = {}
@@ -102,14 +93,14 @@ class Syncer:
         }
         model = model_map[model_name]
 
-        latest_time = self.db.scalar(
-            select(func.max(model.updated_at))
-        ) or datetime.now(tz=timezone.utc)
-
-        stmt = select(func.count(model.id))
+        stmt = select(
+            func.coalesce(func.max(model.updated_at), datetime.now(tz=timezone.utc)),
+            func.coalesce(func.count(model.id), 0)
+        )
         if model_name == 'track':
             stmt = stmt.where(model.is_deleted == False)
-        total_count = await self.db.scalar(stmt) or 0
+        result = await self.db.execute(stmt)
+        latest_time, total_count = result.one()
 
         meta = await self.db.get(SyncMeta, model_name)
         if meta:

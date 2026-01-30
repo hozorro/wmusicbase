@@ -122,3 +122,9 @@ class TrackBrief(TrackBase):
 class TrackMedium(TrackBase):
     duration: float
     artists: list[ArtistBase]
+
+
+# ==== test ====
+class TestBase(BaseModel):
+    count: int | None = None
+    text: str | None = None

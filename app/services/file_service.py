@@ -9,7 +9,7 @@
 '''
 
 
-import shutil, json, re, uuid
+import shutil, json, re, uuid, aiofiles
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import select
@@ -18,7 +18,7 @@ from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException, credentials_exception
 from app.core.logger import logger
 from app.models import Track, User
-from app.utils.metadata import extract_metadata
+from app.utils.metadata import parse_metadata
 from app.utils.pinyin import get_artist_sort_fields
 from app.utils.audiofile import AudioMeta
 from app.services.processor import MusicFileProcessor
@@ -35,12 +35,12 @@ class FileService:
         '''exclude special characters from filename'''
         return re.sub(r'[\\/:*?"<>|]', '_', filename)
     
-    def save_temp_file(self, file_data: bytes, filename: str) -> Path:
+    async def save_temp_file(self, file_data: bytes, filename: str) -> Path:
         '''save file to temp directory, return file path'''
         safe_name = self._sanitize_filename(filename)
         temp_path = self.settings.TEMP_DIR / f'{uuid.uuid4().hex}_{safe_name}'
-        with open(temp_path, 'wb') as f:
-            f.write(file_data)
+        async with aiofiles.open(temp_path, 'wb') as f:
+            await f.write(file_data)
 
     def create_staging_session(self) -> str:
         '''create staging session, return session_id'''
@@ -89,7 +89,7 @@ class FileService:
         moved_files = []
 
         for temp_file in self.settings.TEMP_DIR.iterdir():
-            if temp_file.isfile():
+            if temp_file.is_file():
                 dest = session_songs_dir / temp_file.name
                 try:
                     shutil.move(str(temp_file), str(dest))
@@ -106,7 +106,7 @@ class FileService:
             raise FileNotFoundError(f'Session {session_id} not found')
         for f in session_songs_dir.iterdir():
             if f.is_file():
-                if moved is not None and not str(f) in moved:
+                if moved is not None and not f.name in moved:
                     continue
                 files.append(AudioMeta(str(f)).to_fileinfo())
         return list(map(lambda x: setattr(x, 'path', str(Path(x.path).relative_to(session_songs_dir))) or x, files))    
@@ -114,11 +114,12 @@ class FileService:
     def update_file_version(self, session_id: str, file_path: str, use_apev2: bool = False, del_id3v1: bool = True, del_apev2: bool = False):
         file_path = self.settings.STAGING_DIR / session_id / 'songs' / file_path
         audio_meta = AudioMeta(str(file_path))
-        audio_meta.update_meta_version(use_apev2, del_id3v1, del_apev2)
+        audio_meta.update_version(use_apev2, del_id3v1, del_apev2)
 
     def update_file_metatags(self, session_id: str, filename: str, new_meta: dict, del_id3v1: bool = True, del_apev2: bool = False):
         '''update file metadata'''
         file_path = self.settings.STAGING_DIR / session_id / 'songs' / filename
+        print(file_path)
         audio_meta = AudioMeta(str(file_path))
         audio_meta.update_metadata(new_meta, del_id3v1, del_apev2)
 
@@ -127,7 +128,7 @@ class ArchiveService:
     def __init__(self, db: DbDep, settings: SettingsDep, request: Request):
         self.db = db
         self.settings = settings
-        self.current_user = request.state.user
+        self.current_user = request.state.user_id
 
     def _get_initial_group(self, initial: str) -> str:
         '''compute initial group name'''
@@ -166,7 +167,7 @@ class ArchiveService:
             if song_file.suffix.lower() not in self.settings.MUSIC_FILE_EXTENSIONS:
                 continue
             # 1. extract metadata(used for path generation)
-            meta = extract_metadata(song_file)
+            meta = parse_metadata(song_file)
             if not meta:
                 errors.append(f'Failed to extract metadata from {song_file}')
                 continue
@@ -191,17 +192,17 @@ class ArchiveService:
 
             # 6. triggle music file processor(archive to db)
             try:
-                processor = MusicFileProcessor(self.db)
-                await processor.process_single_file(target_path, Path(self.settings.MUSIC_LIBRARY_PATH))
+                processor = MusicFileProcessor(self.settings.MUSIC_LIBRARY_PATH, self.db)
+                await processor.process_single_file(target_path)
                 await self.db.commit()
             except Exception as e:
                 await self.db.rollback()
                 errors.append(f'Failed to process {target_path}: {e}')
                 continue
         # 7. delete session directory if empty
-        if len(songs_dir.iterdir()) == 0:
+        if len(list(songs_dir.iterdir())) == 0:
             shutil.rmtree(str(songs_dir))
-        if len(session_dir.iterdir()) == 0:
+        if len(list(session_dir.iterdir())) == 0:
             shutil.rmtree(str(session_dir))
         # 8. if debug mode，record the target path of the moved files, for debug later
         if self.settings.DEBUG:

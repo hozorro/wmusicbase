@@ -9,7 +9,7 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from app.services.artwork_service import ArtworkService
 
@@ -42,3 +42,16 @@ async def get_playlist_artwork(playlist_id: int | str, service: ArtworkService =
     if cache_path: 
         return FileResponse(cache_path)
     raise HTTPException(status_code=404, detail='Playlist artwork not Found')
+
+@router.get('/tmp/track/{path}', tags=['artwork'])
+async def get_tmp_track_artwork(
+    path: str, 
+    session_id: str = Query(..., description='Session ID'),
+    service: ArtworkService = Depends(ArtworkService)
+):
+    from app.core.config import settings
+    file_path = settings.STAGING_DIR / session_id / 'songs' / path
+    cache_path = await service.get_or_cache_tmp_track_artwork(str(file_path))
+    if cache_path: 
+        return FileResponse(cache_path)
+    raise HTTPException(status_code=404, detail=f'Tmp Track artwork not Found: {file_path}')

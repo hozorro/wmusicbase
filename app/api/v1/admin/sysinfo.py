@@ -12,17 +12,17 @@
 from asyncache import cached
 import psutil, platform
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, __version__ as fastapi_version, Depends
+from fastapi import APIRouter, __version__ as fastapi_version
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, desc
 from app.core.cache import lru_cache
 from app.core.deps import DbDep, AdminDep
 from app.core.config import settings
 from app.core.state import system_state
 from app.models import Track, Album, Artist, Folder, Genre, Playlist, track_artists, TrackHit
 from app.services.sync import Syncer
-from app.schemas.common import ResponseModel
-from app.schemas.sysinfo import DashboardInfo
+from app.schemas.common import ResponseModel, StrResponse, TestBase
+from app.schemas.sysinfo import DashboardInfo, ScanInfo
 
 router = APIRouter()
 
@@ -70,13 +70,23 @@ async def _get_playback_stats(db: AsyncSession):
         .limit(4)
     )
 
+    track_play_subq = (
+        select(
+            TrackHit.track_id,
+            func.count(TrackHit.id).label('hit_count')
+        ).group_by(TrackHit.track_id)
+        .subquery('track_play_subq')
+    )
     top_played_artists = await db.execute(
-        select(Artist, func.count(TrackHit.id).label('play_count'))
-        .join(track_artists, Artist.id == track_artists.c.track_id)
-        .join(Track, Track.id == track_artists.c.track_id)
-        .join(TrackHit, TrackHit.track_id == Track.id)
+        select(
+            Artist.id, 
+            Artist.name, 
+            func.coalesce(func.sum(track_play_subq.c.hit_count), 0).label('play_count'))
+        .outerjoin(track_artists, Artist.id == track_artists.c.track_id)
+        .outerjoin(Track, Track.id == track_artists.c.track_id)
+        .outerjoin(track_play_subq, Track.id == track_play_subq.c.track_id)
         .group_by(Artist.id)
-        .order_by(func.count(TrackHit.id).desc())
+        .order_by(desc('play_count'))
         .limit(5)
     )
 
@@ -85,9 +95,20 @@ async def _get_playback_stats(db: AsyncSession):
     stats = {
         'total_played': total_played or 0,
         'recent_tracks': [{'id': t.id, 'title': t.title} for t in recent],
-        'top_artists': [{'id': a.id, 'name': a.name, 'play_count': a.play_count} for a in top_played_artists],
+        'top_artists': [{'id': id, 'name': name, 'play_count': play_count} for id, name, play_count in top_played_artists],
     }
     return stats
+
+@router.get('/scaninfo', response_model=ResponseModel[ScanInfo])
+async def get_scan_info():
+    return ResponseModel(
+        code=200,
+        msg='ok',
+        data=ScanInfo.model_validate({
+            'is_running': system_state.is_scanning,
+            'progress': system_state.scan_progress
+        })
+    )
 
 @router.get('/stats', response_model=ResponseModel[DashboardInfo])
 @cached(lru_cache)
@@ -106,7 +127,6 @@ async def get_dashboard_stats(
                 'playback_stats': {},
                 'system_info': {},
                 'watcher_info': {},
-                'scan_info': {}
             }
         )
     # basic stats
@@ -125,11 +145,6 @@ async def get_dashboard_stats(
         'is_running': system_state.is_watcher_running,
         'watcher_path': str(settings.MUSIC_LIBRARY_PATH)
     }
-    # scanning status
-    scan_info = {
-        'is_running': system_state.is_scanning,
-        'progress': system_state.scan_progress
-    }
     return ResponseModel(
         code=200,
         msg='ok',
@@ -140,7 +155,6 @@ async def get_dashboard_stats(
             'playback_stats': playback_stats,
             'system_info': system_info,
             'watcher_info': watcher_info,
-            'scan_info': scan_info
         })
     )
 
@@ -149,3 +163,14 @@ async def initialize_meta(db: DbDep):
     syncer = Syncer(db, settings)
     await syncer.initialize_sync_meta()
     return ResponseModel(code=200, msg='ok')
+
+@router.post('/test', response_model=ResponseModel[StrResponse])
+async def test(input: TestBase):
+    return ResponseModel(code=200, msg='ok', data=StrResponse(input.text))
+@router.post('/backops', response_model=ResponseModel[StrResponse])
+async def backops():
+    return ResponseModel(code=200, msg='ok', data=StrResponse('success'))
+
+@router.get('/test', response_model=ResponseModel[StrResponse])
+async def test():
+    return ResponseModel(code=200, msg='ok', data=StrResponse('hello'))

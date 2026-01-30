@@ -46,6 +46,11 @@ class WatcherInfo(BaseModel):
     is_running: bool
     watcher_path: str
 
+class ScanFolder(BaseModel):
+    path: str
+    created_at: datetime
+    last_update: datetime | None
+
 class ScanInfo(BaseModel):
     is_running: bool
     progress: dict[str, int] | None = None
@@ -63,7 +68,6 @@ class DashboardInfo(BaseModel):
     playback_stats: PlaybackStats
     system_info: SysInfo
     watcher_info: WatcherInfo
-    scan_info: ScanInfo
 
 class InitializedResponse(BaseModel):
     initialized: bool

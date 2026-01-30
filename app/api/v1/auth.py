@@ -21,7 +21,7 @@ from app.core.state import system_state
 from app.models import User
 from app.schemas.common import ResponseModel
 from app.schemas.sysinfo import InitializedResponse
-from app.schemas.user import UserCreate, UserResponse, TokenData
+from app.schemas.user import UserCreate, UserResponse, TokenData, CurrentUser
 from typing import Annotated
 
 router = APIRouter()
@@ -113,7 +113,7 @@ async def logout(
     await db.commit()
     return ResponseModel(code=200, msg='ok', data=None)
 
-@router.get('/me', response_model=ResponseModel[UserResponse])
+@router.get('/me', response_model=ResponseModel[CurrentUser])
 async def get_current_user(
     current_user: User = Depends(get_current_user)
 ):
@@ -121,7 +121,7 @@ async def get_current_user(
     return ResponseModel(
         code=200,
         msg='ok',
-        data=UserResponse.model_validate(current_user)
+        data=CurrentUser.model_validate(current_user)
     )
 
 @router.get('/test', response_model=ResponseModel[InitializedResponse])

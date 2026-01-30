@@ -12,13 +12,12 @@
 from asyncache import cached
 from fastapi import APIRouter, Depends
 from app.core.cache import lru_cache
-from app.core.deps import COMMON_DEPS
 from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel
 from app.schemas.album import AlbumDetail
 from app.services.album_service import AlbumService
 
-router = APIRouter(dependencies=COMMON_DEPS)
+router = APIRouter()
 
 @router.get("/{album_id}", response_model=ResponseModel[AlbumDetail])
 @cached(lru_cache)

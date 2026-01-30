@@ -39,4 +39,24 @@ class AlbumService:
             return None
 
         return album
+    
+    async def get_album_with_track_detail(self, album_id: int) -> dict | None:
+        '''获取指定专辑的基本信息和所有歌曲的详细信息（含歌曲artists和genres）'''
+        stmt = (
+            select(Album)
+            .where(Album.id == album_id)
+            .options(
+                # 预加载tracks
+                selectinload(Album.tracks).options(
+                    # 预加载每个track的artists和genres
+                    selectinload(Track.artists),
+                    selectinload(Track.genres)
+                )
+            )
+        )
+        result = await self.db.execute(stmt)
+        album = result.scalar_one_or_none()
+        if not album:
+            return None
+        return album
         

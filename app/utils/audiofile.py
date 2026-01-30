@@ -10,10 +10,10 @@
 
 
 from mutagen import File as MutagenFile
-from mutagen.id3 import ID3
+from mutagen.id3 import ID3, Encoding
 from mutagen.apev2 import APEv2, APENoHeaderError
 from app.schemas.filething import FileInfo
-from .metadata import extract_metadata, extract_cover_art_hash
+from .metadata import decode_tag_value, parse_metadata, write_metadata, extract_cover_art_hash, download_cover_art
 from .common import decode_object, parse_year, parse_multiple_value
 
 _KEY_MAP = {
@@ -23,6 +23,21 @@ _KEY_MAP = {
     'mb_albumartistid': 'musicbrainz_albumartistid',
     'mb_albumid': 'musicbrainz_albumid',
     'mb_trackid': 'musicbrainz_trackid',
+}
+
+_ENCODING_MAP = {
+    0: 'latin-1',
+    1: 'utf-16',
+    2: 'utf-16-be',
+    3: 'utf-8',
+}
+
+_APEv2_KEY_MAP = {  # APEv2 key -> ID3v2 key
+    'Title': 'TIT2',
+    'Artist': 'TPE1',
+    'Album': 'TALB',
+    'Year': 'TDRC',
+    'Genre': 'TCON',
 }
 
 class AudioMeta:
@@ -44,17 +59,12 @@ class AudioMeta:
 
             keys = list(tags.keys())
             if keys:
-                match tags[keys[0]].encoding:
-                    case 0:
-                        self.meta_encoding = 'latin-1'
-                    case 1:
-                        self.meta_encoding = 'utf-16'
-                    case 2:
-                        self.meta_encoding = 'utf-16-be'
-                    case 3:
-                        self.meta_encoding = 'utf-8'
-                    case _:
-                        self.meta_encoding = None
+                encoding = tags[keys[0]].encoding
+                self.meta_encoding = _ENCODING_MAP.get(encoding, 'unknown')
+                for key in keys:
+                    if tags[key].encoding != encoding:  # 忽略编码不一致的标签
+                        self.meta_encoding = 'mixed'
+                        break
         except:
             pass
 
@@ -84,17 +94,15 @@ class AudioMeta:
             'mb_trackid': '',
             'acoustid_id': '',
         }
-        meta = extract_metadata(self.file_path)
+        meta = parse_metadata(self.file_path)
         if meta:
-            if self.meta_encoding != 'utf-8':
-                meta = decode_object(meta, self.meta_encoding)
             metadata_primary['title'] = meta.get('title', '')
             metadata_primary['artists'] = meta.get('artists', [])
             metadata_primary['album'] = meta.get('album', '')
             metadata_primary['year'] = meta.get('year', 0)
             metadata_primary['genres'] = meta.get('genres', [])
             metadata_additional['albumartist'] = meta.get('albumartist', [])
-            metadata_additional['cover_art'] = extract_cover_art_hash(self.file_path)
+            metadata_additional['cover_art_hash'] = extract_cover_art_hash(self.file_path)
             metadata_additional['mb_artistids'] = meta.get('mb_artistids', [])
             metadata_additional['mb_albumartistid'] = meta.get('mb_albumartistid', [])
             metadata_additional['mb_albumid'] = meta.get('mb_albumid', '')
@@ -138,9 +146,55 @@ class AudioMeta:
             meta_apev2=self.apev2_data,
             meta_additional=self.meta_data['additional']
         )
-    
-    def update_meta_version(self, use_apev2=False, del_id3v1=True, del_apev2=False) -> None:
+    def update_version(self, use_apev2=False, del_id3v1=True, del_apev2=False):
         '''handle meta data
+        if the version is ID3v1, fix the encoding and upgrade to ID3v2.4
+        if APEv2 exists, use APEv2 data to replace ID3 tags (only replace title, artist, album, year, genre fields)
+        del_id3v1: whether to delete ID3v1 tag
+        del_apev2: whether to delete APEv2 tag
+        '''
+        id3_tag = ID3(self.file_path)
+        for key in id3_tag:
+            if hasattr(id3_tag[key], 'text'):
+                if hasattr(id3_tag[key], 'encoding'):
+                    if isinstance(id3_tag[key].text, list):
+                        id3_tag[key].text = [decode_tag_value(text, id3_tag[key].encoding) for text in id3_tag[key].text]
+                        id3_tag[key].encoding = Encoding.UTF8
+                    else:
+                        id3_tag[key].text = decode_tag_value(id3_tag[key].text, id3_tag[key].encoding)
+                        id3_tag[key].encoding = Encoding.UTF8
+
+        if use_apev2:
+            try:
+                for key in _APEv2_KEY_MAP:
+                    apev2 = APEv2(self.file_path)
+                    if key in apev2.keys() and _APEv2_KEY_MAP[key] in id3_tag:
+                        if isinstance(apev2[key], list):
+                            new_text = []
+                            for item in apev2[key]:
+                                new_text.append(item.strip() if isinstance(item, str) else item)
+                            id3_tag[_APEv2_KEY_MAP[key]].text = [*new_text]
+                        elif isinstance(apev2[key], str):
+                            id3_tag[_APEv2_KEY_MAP[key]].text = parse_multiple_value(apev2[key])
+            except:
+                pass
+
+        id3_tag.save(str(self.file_path), v1=0 if del_id3v1 else 1, v2_version=4)
+
+        if del_apev2:  # 删除APEv2标签
+            try:
+                apev2_tag = APEv2(self.file_path)
+                apev2_tag.delete()
+                apev2_tag.save()
+            except:
+                pass
+
+        self.init_version()
+        
+    def update_meta_version(self, use_apev2=False, del_id3v1=True, del_apev2=False) -> None:
+        '''
+        [Deprecated]
+        handle meta data
         if the version is ID3v1, fix the encoding and upgrade to ID3v2.4
         if APEv2 exists, use APEv2 data to replace ID3 tags (only replace title, artist, album, year, genre fields)
         del_id3v1: whether to delete ID3v1 tag
@@ -171,8 +225,25 @@ class AudioMeta:
         self.init_version()
 
     def update_metadata(self, meta: dict, del_id3v1=True, del_apev2=False) -> None:
+        write_metadata(self.file_path, meta)
+        if del_id3v1:
+            tag = MutagenFile(self.file_path, easy=True)
+            tag.save(self.file_path, v1=0)
+        if del_apev2:
+            try:
+                tag = APEv2(self.file_path)
+                tag.delete()
+                tag.save()
+            except:
+                pass
+        self.init_version()
+
+    def update_meta_data(self, meta: dict, del_id3v1=True, del_apev2=False) -> None:
+        '''
+        [Deprecated]
+        update metadata
+        '''
         tag = MutagenFile(self.file_path, easy=True)
-        print(meta.keys())
         for key in meta.keys():
             if key == 'year':
                 tag['date'] = str(meta[key])

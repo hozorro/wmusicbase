@@ -10,7 +10,7 @@
 
 
 import acoustid
-from app.core.deps import SettingsDep
+from app.core.config import settings
 
 META = ['recordings', 'releases', 'compress']
 
@@ -82,7 +82,7 @@ def _parse_result(data):
                     })
     parsed.sort(key=lambda x: x['score'], reverse=True)
     return parsed
-def match_fingerprint(duration, fp, settings: SettingsDep, meta=META, timeout=None):
+def match_fingerprint(duration, fp, meta=META, timeout=None):
     try:
         response = acoustid.lookup(settings.ACOUSTID_API_KEY, fp, duration, meta, timeout)
     except acoustid.WebServiceError:

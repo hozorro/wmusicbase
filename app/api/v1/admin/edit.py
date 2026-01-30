@@ -14,8 +14,8 @@ from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.schemas.filething import UpdateMetaTagList
 from app.schemas.artist import StartCharsResponse, ArtistsResponse, ArtistResponse, ArtistArtCreate, artist_art_upload_from_form
 from app.schemas.album import AlbumResponse, AlbumArtCreate, album_art_upload_from_form
-from app.core.deps import ADMIN_DEPS
 from app.core.exceptions import BusinessException
+from app.core.deps import ADMIN_DEPS
 from app.services.artwork_service import ArtworkService
 from app.services.artist_service import ArtistService
 from app.services.album_service import AlbumService
@@ -26,12 +26,12 @@ router = APIRouter(dependencies=ADMIN_DEPS)
 @router.get('/getartistchars', response_model=ResponseModel[StartCharsResponse], tags=['edit'])
 async def get_artist_chars(service: ArtistService = Depends(ArtistService)):
     start_chars = await service.get_artist_chars()
-    return ResponseModel(data=StartCharsResponse(start_chars=start_chars))
+    return ResponseModel(data=StartCharsResponse(start_chars))
 
 @router.get('/getartists/{start_char}', response_model=ResponseModel[ArtistsResponse], tags=['edit'])
 async def get_artists(start_char: str, without_path: bool, service: ArtistService = Depends(ArtistService)):
     artists = await service.get_start_char_artists(start_char, without_path)
-    return ResponseModel(data=ArtistsResponse(artists=artists))
+    return ResponseModel(data=ArtistsResponse(artists))
 
 @router.get('/artist/{artist_id}', response_model=ResponseModel[ArtistResponse], tags=['edit'])
 async def get_artist(artist_id: int, service: ArtistService = Depends(ArtistService)):

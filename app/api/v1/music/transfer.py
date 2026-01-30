@@ -23,7 +23,7 @@ from app.schemas.transfer import (
     UploadPlaylists, UploadPlaylistsResponse, DownloadPlaylistListsResponse
 )
 
-router = APIRouter(tags=['transfer'])
+router = APIRouter()
 
 @router.get('/getdbinfo', response_model=ResponseModel[MusicStatInfo])
 async def get_db_info(service: TransferService = Depends(TransferService)):

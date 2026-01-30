@@ -82,7 +82,6 @@ async def add_cors_to_fileresponse(request, call_next):
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "*"
-
         response.headers["Cache-Control"] = "no-store"
     
     return response

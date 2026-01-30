@@ -10,13 +10,19 @@
 
 
 from dataclasses import dataclass
-from typing import Any
+
+init_progress = {
+    'total': 0,
+    'processed': 0,
+    'success': 0,
+    'failed': 0,
+}
 
 @dataclass
 class SystemState:
     is_watcher_running: bool = False
     is_scanning: bool = False
-    scan_progress: dict[str, Any] | None = None
+    scan_progress: dict[str, int | str] | None = None
 
     def init_scan_state(self):
         self.is_scanning = True
@@ -25,6 +31,7 @@ class SystemState:
             'processed': 0,
             'success': 0,
             'failed': 0,
+            'current_file': ''
         }
     def reset_scan_state(self):
         self.is_scanning = False

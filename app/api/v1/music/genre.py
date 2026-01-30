@@ -14,7 +14,7 @@ from app.schemas.common import ResponseModel, GenreBase
 from app.schemas.genre import GenresResponse, GenreTracksResponse
 from app.services.genre_service import GenreService
 
-router = APIRouter(tags=['genres'])
+router = APIRouter()
 
 @router.get('/randomgenres', response_model=ResponseModel[GenresResponse])
 async def get_random_genres(service: GenreService = Depends(GenreService)):

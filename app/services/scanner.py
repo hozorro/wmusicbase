@@ -11,16 +11,16 @@
 
 import asyncio
 from pathlib import Path
-from app.core.logger import logger
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import DBAPIError
-from app.core.db import safe_async_transaction
-from sqlalchemy import select
-from app.models import Track
+from app.core.logger import logger
+from app.core.db import safe_async_transaction, AsyncSessionLocal
 from app.core.config import settings
-from app.core.db import AsyncSessionLocal
 from app.core.state import system_state
+from app.models import Track, Folder, SyncMeta
 from app.services.processor import MusicFileProcessor
+from app.services.sync import Syncer
+from app.schemas.sysinfo import ScanFolder
 
 # ========== global signals ==========
 _scan_cancel_event = asyncio.Event()
@@ -28,6 +28,15 @@ _scan_lock = asyncio.Lock()
 MAX_RETRIES = 3
 
 # ========== control interface =======
+async def get_scan_folder(db: AsyncSession) -> ScanFolder:
+    result = await db.execute(select(Folder).where(Folder.parent_id == None))
+    folder = result.scalar_one_or_none()
+    if folder: 
+        result_update = await db.execute(select(func.max(SyncMeta.last_update)).where(SyncMeta.user_id == None))
+        folder_path = settings.MUSIC_LIBRARY_PATH / Path(folder.path)
+        return ScanFolder(path=str(folder_path), created_at=folder.created_at, last_update=result_update.scalar_one_or_none())
+    else:
+        return None
 def cancel_scan():
     '''cancel scan'''
     _scan_cancel_event.set()
@@ -47,9 +56,6 @@ async def process_in_batches(files: list[Path], root_path: Path, batch_size: int
     semaphore = asyncio.Semaphore(batch_size) # control concurrency
 
     async def process_file(file_path: Path):
-        system_state.is_scanning = True
-        system_state.scan_progress = {'total': 0, 'processed': 0}
-
         if _scan_cancel_event.is_set(): 
             return
 
@@ -59,6 +65,7 @@ async def process_in_batches(files: list[Path], root_path: Path, batch_size: int
             async with AsyncSessionLocal() as db:
                 try:
                     processor = MusicFileProcessor(root_path, db)
+                    system_state.scan_progress['current_file'] = str(file_path.relative_to(root_path))
                     result = await safe_async_transaction(db, processor.process_single_file, file_path)
                     await db.commit()
                     return result
@@ -83,13 +90,16 @@ async def process_in_batches(files: list[Path], root_path: Path, batch_size: int
         total_error += error
         total_success += success
         cur_batch = i // batch_size + 1
-        system_state.scan_progress['processed'] = i + success + error
+        system_state.scan_progress['processed'] = i + len(results)
         system_state.scan_progress['success'] = total_success
         system_state.scan_progress['failed'] = total_error
         print(f"\r🔍Total: {total}; handled batches {cur_batch}/{total_batch_count}: success {success}/{len(batch)}; total success {total_success}, total fail {total_error}.", end='', flush=True)
     
     print(f'\n✅scan finished, success {total_success}, fail {total_error}')
     system_state.reset_scan_state()
+    syncer = Syncer(db=AsyncSessionLocal(), settings=settings)
+    for model in ['album', 'artist', 'folder', 'genre', 'track']:
+        syncer.update_basic_sync_meta(model)
 
 async def scan_music_library(root_path: str | Path):
     """scan music library"""

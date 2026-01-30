@@ -10,7 +10,6 @@
 
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.deps import COMMON_DEPS
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.schemas.playback import (
     PlaylistsResponse, 
@@ -25,7 +24,7 @@ from app.schemas.playback import (
 from app.services.playback_service import PlaylistService
 from app.services.artwork_service import ArtworkService
 
-router = APIRouter(dependencies=COMMON_DEPS, tags=['playlist'])
+router = APIRouter()
 
 @router.get('/topplaylists', response_model=ResponseModel[PlaylistsResponse])
 async def get_top_playlists(service: PlaylistService = Depends(PlaylistService)):
