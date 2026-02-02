@@ -303,6 +303,7 @@ class ArtworkService:
             self.invalidate_artwork_cache(artist.id, 'artist', img_cate)
         else: 
             img_path = self._save_artwork_to_cache(artist.id, 'artist', content, img_cate)
+        # update cover_art_hash used for the front end cache refresh, same for album, playlist, track.
         cover_art_hash = hashlib.sha1(content).hexdigest()
         artist.cover_art_hash = cover_art_hash
         await self.db.commit()

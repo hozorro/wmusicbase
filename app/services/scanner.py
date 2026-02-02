@@ -11,6 +11,7 @@
 
 import asyncio
 from pathlib import Path
+from datetime import datetime
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logger import logger
@@ -36,7 +37,7 @@ async def get_scan_folder(db: AsyncSession) -> ScanFolder:
         folder_path = settings.MUSIC_LIBRARY_PATH / Path(folder.path)
         return ScanFolder(path=str(folder_path), created_at=folder.created_at, last_update=result_update.scalar_one_or_none())
     else:
-        return None
+        return ScanFolder(path=str(settings.MUSIC_LIBRARY_PATH), created_at=datetime.now(), last_update=None)
 def cancel_scan():
     '''cancel scan'''
     _scan_cancel_event.set()
@@ -99,7 +100,7 @@ async def process_in_batches(files: list[Path], root_path: Path, batch_size: int
     system_state.reset_scan_state()
     syncer = Syncer(db=AsyncSessionLocal(), settings=settings)
     for model in ['album', 'artist', 'folder', 'genre', 'track']:
-        syncer.update_basic_sync_meta(model)
+        await syncer.update_basic_sync_meta(model)
 
 async def scan_music_library(root_path: str | Path):
     """scan music library"""

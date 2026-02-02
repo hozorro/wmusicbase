@@ -49,12 +49,18 @@ async def scan_progress_websocket(websocket: WebSocket, user: User = Depends(req
             if system_state.is_scanning:
                 await manager.broadcast({
                     'type': 'scan_progress',
-                    'data': system_state.scan_progress
+                    'data': {
+                        'is_scanning': system_state.is_scanning,
+                        'scan_progress': system_state.scan_progress
+                    }
                 })
             else:
                 await manager.broadcast({
                     'type': 'scan_complete',
-                    'data': None
+                    'data': {
+                        'is_scanning': system_state.is_scanning,
+                        'scan_progress': None
+                    }
                 })
                 break
     except WebSocketDisconnect:

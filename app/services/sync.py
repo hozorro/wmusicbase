@@ -83,7 +83,7 @@ class Syncer:
             
         await self.db.commit()
 
-    async def update_basic_sync_meta(self, model_name: str):
+    async def update_basic_sync_meta(self, basic_model_name: str):
         model_map = {
             'track': Track,
             'album': Album,
@@ -91,28 +91,29 @@ class Syncer:
             'folder': Folder,
             'genre': Genre,
         }
-        model = model_map[model_name]
+        model = model_map[basic_model_name]
 
         stmt = select(
             func.coalesce(func.max(model.updated_at), datetime.now(tz=timezone.utc)),
             func.coalesce(func.count(model.id), 0)
         )
-        if model_name == 'track':
+        if basic_model_name == 'track':
             stmt = stmt.where(model.is_deleted == False)
         result = await self.db.execute(stmt)
         latest_time, total_count = result.one()
 
-        meta = await self.db.get(SyncMeta, model_name)
+        result = await self.db.execute(select(SyncMeta).where(SyncMeta.model_name == basic_model_name))
+        meta = result.scalar_one_or_none()
         if meta:
             meta.last_update = latest_time
             meta.total_count = total_count
         else:
-            meta = SyncMeta(model_name=model_name, last_update=latest_time, total_count=total_count)
+            meta = SyncMeta(model_name=basic_model_name, last_update=latest_time, total_count=total_count)
             self.db.add(meta)
         
         await self.db.commit()
 
-    async def update_playback_sync_meta(self, model_name: str, user_id: int):
+    async def update_playback_sync_meta(self, playback_model_name: str, user_id: int):
         model_map = {
             'trackhit': TrackHit,
             'playlisthit': PlaylistHit,
@@ -120,23 +121,23 @@ class Syncer:
             'artistfav': ArtistFav,
             'playlist': Playlist
         }
-        model = model_map[model_name]
+        model = model_map[playback_model_name]
 
         latest_time = datetime.now(tz=timezone.utc)
 
         stmt = select(func.count(model.user_id))
         conditions = [model.user_id == user_id]
-        if model_name == 'playlist':
+        if playback_model_name == 'playlist':
             conditions.append(model.is_deleted == False)
         stmt = stmt.where(and_(*conditions))
         total_count = await self.db.scalar(stmt) or 0
 
-        meta = await self.db.scalar(select(SyncMeta).where(SyncMeta.model_name == model_name, SyncMeta.user_id == user_id))
+        meta = await self.db.scalar(select(SyncMeta).where(SyncMeta.model_name == playback_model_name, SyncMeta.user_id == user_id))
         if meta:
             meta.last_update = latest_time
             meta.total_count = total_count
         else:
-            meta = SyncMeta(model_name=model_name, last_update=latest_time, total_count=total_count, user_id=user_id)
+            meta = SyncMeta(model_name=playback_model_name, last_update=latest_time, total_count=total_count, user_id=user_id)
             self.db.add(meta)
         
         await self.db.commit()

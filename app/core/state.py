@@ -16,6 +16,7 @@ init_progress = {
     'processed': 0,
     'success': 0,
     'failed': 0,
+    'current_file': ''
 }
 
 @dataclass

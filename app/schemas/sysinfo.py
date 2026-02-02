@@ -52,8 +52,8 @@ class ScanFolder(BaseModel):
     last_update: datetime | None
 
 class ScanInfo(BaseModel):
-    is_running: bool
-    progress: dict[str, int] | None = None
+    is_scanning: bool
+    scan_progress: dict[str, int] | None = None
 
 class SysInfo(BaseModel):
     system: str

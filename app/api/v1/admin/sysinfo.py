@@ -105,8 +105,8 @@ async def get_scan_info():
         code=200,
         msg='ok',
         data=ScanInfo.model_validate({
-            'is_running': system_state.is_scanning,
-            'progress': system_state.scan_progress
+            'is_scanning': system_state.is_scanning,
+            'scan_progress': system_state.scan_progress
         })
     )
 
