@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings, create_required_directories
+from app.core.config import settings
 from app.core.db import engine
 from app.core.exception_handlers import EXCEPTION_HANDLERS
 from app.core.middleware import ScanMiddleware
@@ -30,9 +30,6 @@ init_logging()  # init logging, before other modules
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀Starting application...")
-    logger.info("🔧Creating required directories...")
-    create_required_directories()
-    logger.info("✅Required directories created successfully or no need to create because they already exist.")
     logger.info("✅Server is ready to serve requests.")
 
     #### Optitional：Start scanning when first run(only when tracks table is empty)

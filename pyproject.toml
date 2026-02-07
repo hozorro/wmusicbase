@@ -26,7 +26,8 @@ dependencies = [
     "requests>=2.31,<3.0",
     "SQLAlchemy>=2.0,<3.0",
     "uvicorn[standard]>=0.30,<1.0",
-    "watchdog>=5.0,<7.0"
+    "watchdog>=5.0,<7.0",
+    "typer>=0.21.1",
 ]
 
 [project.optional-dependencies]
@@ -34,3 +35,15 @@ dev = [
     "pytest>=8,<9",
     "pytest-asyncio>=1.0,<2.0"
 ]
+
+[project.scripts]
+init-dirs = "app.cli:init_dirs"
+init-db = "app.cli:init_db"
+migrate = "app.cli:init_db"
+downgrade = "app.cli:downgrade"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.uv]
+package = true
