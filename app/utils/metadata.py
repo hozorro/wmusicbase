@@ -37,6 +37,14 @@ tag_mapping ={
     'TXXX:Acoustid Id': 'acoustid_id'
 }
 
+def compute_file_hash(file_path: str | Path) -> str:
+    '''compute file hash'''
+    stat = Path(file_path).stat()
+    size = stat.st_size
+    mtime = int(stat.st_mtime)
+    raw = f'{str(file_path)}{size}{mtime}'.encode('utf-8')
+    return hashlib.sha256(raw).hexdigest(), size, mtime
+
 def decode_tag_value(raw_value: Any, encoding: int) -> str:
     '''decode raw tag text to utf-8 str, according to encoding'''
     decoded_str = ''
@@ -89,7 +97,7 @@ def parse_metadata(file_path: str | Path) -> dict[str, Any]:
         # 2. extract raw ID3 tags, including text and encoding
         id3_tags = ID3(file_path)
     except Exception:
-        return result
+        raise Exception(f"Failed to parse metadata for {file_path}")
 
     # list type fields
     LIST_TYPE_FIELDS = ['artists', 'albumartist', 'genres', 'mb_artistids', 'mb_albumartistid']
@@ -112,7 +120,7 @@ def parse_metadata(file_path: str | Path) -> dict[str, Any]:
                     decoded_val = decode_tag_value(single_raw_val, tag_obj.encoding)
                     if decoded_val:
                         decoded_list.append(decoded_val)
-                result[target_field] = decoded_list
+                result[target_field] = list(set(decoded_list))  # remove duplicate values
             else:
                 first_raw_val = raw_text_list[0]
                 decoded_text = decode_tag_value(first_raw_val, tag_obj.encoding)
@@ -205,9 +213,8 @@ def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
             raise Exception('Update metadata failed')
     else:
         raise FileNotFoundError
-def extract_metadata(file_path: Path) -> dict[str, Any] | None:
+def easy_metadata(file_path: Path) -> dict[str, Any] | None:
     '''
-    [Deprecated]
     extract metadata from audio file, without encoding transform
     '''
     try:
@@ -239,14 +246,14 @@ def extract_metadata(file_path: Path) -> dict[str, Any] | None:
 
         return {
             'title': title,
-            'artists': artists,
-            'mb_artistids': mb_artistids,
+            'artists': list(set(artists)),  # remove duplicate artists
+            'mb_artistids': list(set(mb_artistids)),  # remove duplicate mb_artistids
             'album': _get_first(audio.get('album', [''])),
             'mb_albumid': _get_first(audio.get('musicbrainz_albumid', [''])),
-            'albumartist': albumartist,
-            'mb_albumartistid': mb_albumartistid,
+            'albumartist': list(set(albumartist)),  # remove duplicate albumartists 
+            'mb_albumartistid': list(set(mb_albumartistid)),  # remove duplicate mb_albumartistid
             'year': parse_year(_get_first(audio.get('date', ['']))),
-            'genres': _get_list('genre'),
+            'genres': list(set(_get_list('genre'))),  # remove duplicate genres
             'duration': getattr(audio.info, 'length', 0.0),
             'bitrate': getattr(audio.info, 'bitrate', 0) // 1000,
             'bitrate_mode': bitrate_mode,

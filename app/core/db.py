@@ -1,7 +1,7 @@
 import asyncio
 from functools import wraps
 from app.core.logger import logger
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import sessionmaker
 from asyncpg.exceptions import DeadlockDetectedError, InFailedSQLTransactionError
 from .config import settings
@@ -16,7 +16,7 @@ engine = create_async_engine(
     future=True,            # use asyncio
 )
 
-AsyncSessionLocal = sessionmaker(
+AsyncSessionLocal = async_sessionmaker(
     bind=engine, 
     class_=AsyncSession,
     expire_on_commit=False,

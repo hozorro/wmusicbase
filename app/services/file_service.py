@@ -167,8 +167,9 @@ class ArchiveService:
             if song_file.suffix.lower() not in self.settings.MUSIC_FILE_EXTENSIONS:
                 continue
             # 1. extract metadata(used for path generation)
-            meta = parse_metadata(song_file)
-            if not meta:
+            try:
+                meta = parse_metadata(song_file)
+            except Exception:
                 errors.append(f'Failed to extract metadata from {song_file}')
                 continue
             # 2. recognize the artist_name(used for path generation)

@@ -45,6 +45,15 @@ class MetaInfoWithNoArt(BaseModel):
 class MetaInfo(MetaInfoWithNoArt):
     cover_art_hash: str | None
 
+class ParsedMeta(MetaInfoWithNoArt):
+    path: str
+    duration: float | None
+    bitrate: int | None
+    bitrate_mode: str | None
+    # fingerprint: str | None
+    # size: int | None
+    # mtime: int | None
+
 class PrimaryInfo(BaseModel):
     title: str | None
     artists: list[str] | None

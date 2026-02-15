@@ -25,8 +25,18 @@ class SystemState:
     is_scanning: bool = False
     scan_progress: dict[str, int | str] | None = None
 
+    _is_scanning_canceled: bool = False
+
+    @property
+    def is_scanning_canceled(self):
+        return self._is_scanning_canceled
+    @is_scanning_canceled.setter
+    def is_scanning_canceled(self, value):
+        self._is_scanning_canceled = value
+
     def init_scan_state(self):
         self.is_scanning = True
+        self._is_scanning_canceled = False
         self.scan_progress = {
             'total': 0,
             'processed': 0,
@@ -34,8 +44,13 @@ class SystemState:
             'failed': 0,
             'current_file': ''
         }
+    
     def reset_scan_state(self):
         self.is_scanning = False
         self.scan_progress = None
+        self._is_scanning_canceled = False
+
+    def cancel_scan(self):
+        self._is_scanning_canceled = True
 
 system_state = SystemState()

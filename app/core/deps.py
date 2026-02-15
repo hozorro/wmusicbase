@@ -68,30 +68,30 @@ ADMIN_DEPS: list = [Depends(get_settings), Depends(get_db), Depends(require_admi
 
 
 # deps for websocket
-async def get_user_from_token(token: str, db: AsyncSession):
-    playload = verify_token(token)
-    if not playload:
-        return None
+# async def get_user_from_token(token: str, db: AsyncSession):
+#     playload = verify_token(token)
+#     if not playload:
+#         return None
     
-    username = playload.get('sub')
-    if not username:
-        return None
+#     username = playload.get('sub')
+#     if not username:
+#         return None
     
-    result = await db.execute(select(User).where(User.username == username))
-    return result.scalar_one_or_none()
+#     result = await db.execute(select(User).where(User.username == username))
+#     return result.scalar_one_or_none()
 
-async def get_websocket_user(websocket: WebSocket, db: AsyncSession = Depends(get_db)):
-    token = websocket.query_params.get('token')
-    if not token:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason='token required')
+# async def get_websocket_user(websocket: WebSocket, db: AsyncSession = Depends(get_db)):
+#     token = websocket.query_params.get('token')
+#     if not token:
+#         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason='token required')
     
-    user = await get_user_from_token(token, db)
-    if not user:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason='invalid token')
+#     user = await get_user_from_token(token, db)
+#     if not user:
+#         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason='invalid token')
     
-    return user
+#     return user
 
-async def require_websocket_admin(websocket: WebSocket, user: User = Depends(get_websocket_user)):
-    if not user.is_admin:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason='Admin required')
-    return user
+# async def require_websocket_admin(websocket: WebSocket, user: User = Depends(get_websocket_user)):
+#     if not user.is_admin:
+#         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason='Admin required')
+#     return user

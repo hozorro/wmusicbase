@@ -94,8 +94,8 @@ class AudioMeta:
             'mb_trackid': '',
             'acoustid_id': '',
         }
-        meta = parse_metadata(self.file_path)
-        if meta:
+        try:
+            meta = parse_metadata(self.file_path)
             metadata_primary['title'] = meta.get('title', '')
             metadata_primary['artists'] = meta.get('artists', [])
             metadata_primary['album'] = meta.get('album', '')
@@ -108,6 +108,8 @@ class AudioMeta:
             metadata_additional['mb_albumid'] = meta.get('mb_albumid', '')
             metadata_additional['mb_trackid'] = meta.get('mb_trackid', '')
             metadata_additional['acoustid_id'] = meta.get('acoustid_id', '')
+        except Exception:
+            pass
         return {'primary': metadata_primary, 'additional': metadata_additional}
     @property
     def apev2_data(self):

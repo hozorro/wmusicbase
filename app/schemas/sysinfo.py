@@ -53,7 +53,7 @@ class ScanFolder(BaseModel):
 
 class ScanInfo(BaseModel):
     is_scanning: bool
-    scan_progress: dict[str, int] | None = None
+    scan_progress: dict[str, int | str] | None = None
 
 class SysInfo(BaseModel):
     system: str

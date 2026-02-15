@@ -9,12 +9,13 @@
 '''
 
 
+from datetime import datetime, timezone
 from pathlib import Path
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from app.core.deps import SettingsDep, DbDep
-from app.models.folder import Folder
-from app.models.track import Track
+from app.models import Folder, Track, SyncMeta
+from app.schemas.sysinfo import ScanFolder
 
 class FolderService:
     def __init__(self, db: DbDep, settings: SettingsDep):
@@ -36,6 +37,13 @@ class FolderService:
         if not folder: 
             return None
         return folder
-        
-        
-        
+
+    async def get_scan_folder(self) -> ScanFolder:
+        result = await self.db.execute(select(Folder).where(Folder.parent_id == None))
+        folder = result.scalar_one_or_none()
+        if folder: 
+            result_update = await self.db.execute(select(func.max(SyncMeta.last_update)).where(SyncMeta.user_id == None))
+            folder_path = self.settings.MUSIC_LIBRARY_PATH / Path(folder.path)
+            return ScanFolder(path=str(folder_path), created_at=folder.created_at, last_update=result_update.scalar_one_or_none())
+        else:
+            return ScanFolder(path=str(self.settings.MUSIC_LIBRARY_PATH), created_at=datetime.now(timezone.utc), last_update=None)

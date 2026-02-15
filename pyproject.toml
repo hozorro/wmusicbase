@@ -9,6 +9,7 @@ dependencies = [
     "alembic>=1.12,<2.0",
     "asyncache>=0.3,<0.4",
     "asyncpg>=0.29,<1.0",
+    "celery>=5.2,<6.0",
     "fastapi>=0.115,<1.0",
     "gunicorn>=23.0,<26.0",
     "httpx>=0.27,<1.0",
@@ -25,11 +26,12 @@ dependencies = [
     "python-dotenv>=1.0,<2.0",
     "python-jose>=3.3,<4.0",
     "python-multipart>=0.0.5,<1.0",
+    "redis>=6.5,<7.5",
     "requests>=2.31,<3.0",
+    "typer>=0.21.1",
     "SQLAlchemy>=2.0,<3.0",
     "uvicorn[standard]>=0.30,<1.0",
     "watchdog>=5.0,<7.0",
-    "typer>=0.21.1",
 ]
 
 [project.optional-dependencies]

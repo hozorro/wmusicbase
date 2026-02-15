@@ -44,3 +44,21 @@ from .album import Album
 from .genre import Genre
 from .user import User
 from .playback import Playlist, TrackHit, TrackFav, ArtistFav, PlaylistTrack, PlaylistHit, SyncMeta
+
+__all__ = [
+    "Folder",
+    "Track",
+    "track_artists",
+    "track_genres",
+    "Artist",
+    "Album",
+    "Genre",
+    "User",
+    "Playlist",
+    "TrackHit",
+    "TrackFav",
+    "ArtistFav",
+    "PlaylistTrack",
+    "PlaylistHit",
+    "SyncMeta",
+]

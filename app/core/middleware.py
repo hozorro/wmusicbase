@@ -13,6 +13,7 @@ from fastapi import Request, status, HTTPException
 from app.core.state import system_state
 
 ALLOWED_DURING_SCAN = {
+    '/api/v1/system/initialized',
     '/api/v1/auth/login',
     '/api/v1/auth/refresh',
     '/api/v1/auth/register',

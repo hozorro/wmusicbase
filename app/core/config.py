@@ -138,6 +138,12 @@ class Settings(BaseSettings):
     # ========== CORS config ============
     CORS_ORIGINS: list[str] = Field(['*'], description='allowed origins')
 
+    # ========== Celery config ==========
+    CELERY_BROKER_URL: str = Field(..., description='celery broker url')
+    CELERY_RESULT_BACKEND: str = Field(..., description='celery result backend')
+    CELERY_TIMEZONE: str = Field('Asia/Shanghai', description='celery timezone')
+    CELERY_TASK_DEFAULT_QUEUE: str = Field('music_tasks', description='celery default queue')
+
     # ========== Lyric config ===========
     LYRIC_OUT_BASE_URL:str = Field('http://localhost:28883/api/v1/lyrics/', description='lyric server address base url')
 

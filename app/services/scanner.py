@@ -1,114 +1,142 @@
 # -*- encoding: utf-8 -*-
 '''
 @File      :   scanner.py
-@Time      :   2025/10/20 11:06:43
+@Time      :   2026/02/10 20:13:21
 @Author    :   enauvy
 @Version   :   1.0
-@Copyright :   ©2018-2025 WEYECO <enauvy@qq.com>
-@Desc      :   scanner
+@Copyright :   ©2018-2026 WEYECO <enauvy@qq.com>
+@Desc      :   scanner with p+c mode
 '''
 
 
 import asyncio
 from pathlib import Path
-from datetime import datetime
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.logger import logger
-from app.core.db import safe_async_transaction, AsyncSessionLocal
 from app.core.config import settings
+from app.core.db import AsyncSessionLocal
 from app.core.state import system_state
-from app.models import Track, Folder, SyncMeta
+from app.core.logger import logger
+from app.schemas.filething import ParsedMeta
 from app.services.processor import MusicFileProcessor
-from app.services.sync import Syncer
-from app.schemas.sysinfo import ScanFolder
+from app.utils.metadata import parse_metadata, easy_metadata
 
-# ========== global signals ==========
-_scan_cancel_event = asyncio.Event()
-_scan_lock = asyncio.Lock()
-MAX_RETRIES = 3
+SCAN_TASK_COUNT = 50
+COMMIT_TASK_COUNT = 100
 
-# ========== control interface =======
-async def get_scan_folder(db: AsyncSession) -> ScanFolder:
-    result = await db.execute(select(Folder).where(Folder.parent_id == None))
-    folder = result.scalar_one_or_none()
-    if folder: 
-        result_update = await db.execute(select(func.max(SyncMeta.last_update)).where(SyncMeta.user_id == None))
-        folder_path = settings.MUSIC_LIBRARY_PATH / Path(folder.path)
-        return ScanFolder(path=str(folder_path), created_at=folder.created_at, last_update=result_update.scalar_one_or_none())
-    else:
-        return ScanFolder(path=str(settings.MUSIC_LIBRARY_PATH), created_at=datetime.now(), last_update=None)
-def cancel_scan():
-    '''cancel scan'''
-    _scan_cancel_event.set()
+class Scanner:
+    def __init__(self, root_path: Path):
+        self.root_path = root_path
+        self.queue = asyncio.Queue(maxsize=1000)
+        self.batch_size = COMMIT_TASK_COUNT    # db commit batch size
 
-def reset_scan_cancel():
-    '''reset scan cancel signal'''
-    _scan_cancel_event.clear()
-
-async def get_track_by_path(db: AsyncSession, file_path: str) -> Track | None:
-    '''lookup Track by absolute path(including soft deleted)'''
-    result = await db.execute(select(Track).where(Track.path == file_path))
-    return result.scalar_one_or_none()
-
-# ========== 扫描逻辑 ==============
-async def process_in_batches(files: list[Path], root_path: Path, batch_size: int = 20):
-    '''process files in batches, commit to db one by one'''
-    semaphore = asyncio.Semaphore(batch_size) # control concurrency
-
-    async def process_file(file_path: Path):
-        if _scan_cancel_event.is_set(): 
-            return
-
-        async with semaphore:
-            if _scan_cancel_event.is_set(): 
-                return False
-            async with AsyncSessionLocal() as db:
-                try:
-                    processor = MusicFileProcessor(root_path, db)
-                    system_state.scan_progress['current_file'] = str(file_path.relative_to(root_path))
-                    result = await safe_async_transaction(db, processor.process_single_file, file_path)
-                    await db.commit()
-                    return result
-                except Exception as e:
-                    await db.rollback()
-                    logger.error(f"❌fail to process {file_path} and rollback: {str(e)}", exc_info=True)
-                    return False
-        return False
+    async def parse_single_file(self, file_path: Path):
+        '''
+        parse file metadata, put into queue, producer task.
+        if error occurs, log and continue with next file.
+        update scan progress in system state.
+        '''
+        try:
+            if file_path.suffix.lower() == ".mp3":
+                meta = parse_metadata(file_path)
+            else:
+                meta = easy_metadata(file_path)
+            meta.update({"path": str(file_path)})
+            # file_fp = compute_file_hash(file_path)
+            # meta.update({
+            #     "fingerprint": file_fp[0],
+            #     "size": file_fp[1],
+            #     "mtime": file_fp[2]
+            # })
+            await self.queue.put(ParsedMeta.model_validate(meta))
+        except Exception:
+            logger.error(f"Failed to parse metadata for file {file_path}")
+            system_state.scan_progress['failed'] += 1
         
-    total = len(files)
-    system_state.init_scan_state()
-    system_state.scan_progress['total'] = total
-    total_batch_count = (total + batch_size - 1) // batch_size
-    total_error = 0
-    total_success = 0
-    for i in range(0, total, batch_size):
-        batch = files[i:i+batch_size]
-        # handle batches in parallel (control concurrency by semaphore)      
-        results = await asyncio.gather(*[process_file(file_path) for file_path in batch], return_exceptions=True)
-        success = sum([1 for result in results if not isinstance(result, Exception)])
-        error = len(batch) - success
-        total_error += error
-        total_success += success
-        cur_batch = i // batch_size + 1
-        system_state.scan_progress['processed'] = i + len(results)
-        system_state.scan_progress['success'] = total_success
-        system_state.scan_progress['failed'] = total_error
-        print(f"\r🔍Total: {total}; handled batches {cur_batch}/{total_batch_count}: success {success}/{len(batch)}; total success {total_success}, total fail {total_error}.", end='', flush=True)
+    async def count_files(self):
+        count = 0
+        for file_path in self.root_path.rglob("*"):
+            if file_path.is_file() and file_path.suffix.lower() in settings.MUSIC_FILE_EXTENSIONS:
+                count += 1
+        return count
     
-    print(f'\n✅scan finished, success {total_success}, fail {total_error}')
-    system_state.reset_scan_state()
-    syncer = Syncer(db=AsyncSessionLocal(), settings=settings)
-    for model in ['album', 'artist', 'folder', 'genre', 'track']:
-        await syncer.update_basic_sync_meta(model)
+    def iter_files(self):
+        for file_path in self.root_path.rglob("*"):
+            if file_path.is_file() and file_path.suffix.lower() in settings.MUSIC_FILE_EXTENSIONS:
+                yield file_path
+    
+    async def producer(self):
+        '''
+        producer: scan folder, parse file, put into queue
+        '''
+        logger.info("Start scanning files...")
+        system_state.scan_progress['total'] = await self.count_files()
+        tasks = []
+        try:
+            for file_path in self.iter_files():
+                if system_state.is_scanning_canceled:
+                    logger.info("Scan canceled, stopping producer.")
+                    break
+                task = asyncio.create_task(self.parse_single_file(file_path))
+                tasks.append(task)
 
-async def scan_music_library(root_path: str | Path):
-    """scan music library"""
-    reset_scan_cancel()
-    files = []
-    for file_path in Path(root_path).rglob('*'):
-        if file_path.suffix.lower() in settings.MUSIC_FILE_EXTENSIONS:
-            files.append(file_path)
-    async with _scan_lock:
-        await process_in_batches(files, Path(root_path))
-    
+                if len(tasks) >= SCAN_TASK_COUNT:
+                    await asyncio.gather(*tasks)
+                    tasks = []
+            if tasks:  # wait for all tasks to finish
+                await asyncio.gather(*tasks)
+        except Exception as e:
+            logger.critical(f"Scanner producer crashed: {e}")
+            system_state.is_scanning = False
+        finally:
+            await self.queue.put(None)  # signal end of processing
+            logger.info(f"Finished parsing files.")
+
+    async def consumer(self):
+        '''
+        consumer: process file, save to db, single db writer, avoid db deadlock
+        '''
+        logger.info("Start processing files...")
+        async with AsyncSessionLocal() as db:
+            processor = MusicFileProcessor(self.root_path, db)
+            while True:
+                meta = await self.queue.get()
+                if meta is None:
+                    await processor.commit_pending_tracks()  # commit remaining tracks  
+                    
+                    if system_state.is_scanning_canceled:
+                        logger.info("Scan canceled, stopping consumer.")
+                    else:
+                        logger.info("All files processed, consumer task done.")
+                    self.queue.task_done()
+                    break
+
+                system_state.scan_progress['current_file'] = str(Path(meta.path).relative_to(self.root_path))
+                
+                if system_state.is_scanning_canceled:
+                    # not break immediately, use continue to skip processing and db writing
+                    # just skip processing and db writing
+                    # let producer finish putting none into queue
+                    # avoid blocked producer not able to put None into queue, cause producer keep blocked on full queue
+                    self.queue.task_done()
+                    continue
+                
+                try:
+                    await processor.process_single_file(meta)
+                    # check if batch size reached, commit to db
+                    if len(processor.pending_tracks) >= self.batch_size:
+                        # try-except handled db errors in commit_pending_tracks, if error occurs, log and continue processing next files
+                        await processor.commit_pending_tracks()
+                except Exception as e:
+                    logger.error(f"Error processing file {meta.path}: {e}")
+                    system_state.scan_progress['failed'] += 1
+                finally:
+                    system_state.scan_progress['processed'] += 1
+                    self.queue.task_done()
+
+    async def run(self):
+        system_state.init_scan_state()
+        await asyncio.gather(
+            self.producer(), 
+            self.consumer()
+        )
+        system_state.is_scanning = False
+        logger.info("Scan completed.")
