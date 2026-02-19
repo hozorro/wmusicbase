@@ -67,8 +67,6 @@ class Settings(BaseSettings):
     # ======= ==== Security config =============
     SECRET_KEY: str = Field(..., description='JWT key(MUST randomly generated in production)')
     ACOUSTID_API_KEY: str = Field(..., description='AcoustID dev api-key(from acoustid.org)')
-    PROXY_API_URL: str = Field('', description='Proxy api url(MUST be set in production)')
-    PROXY_API_KEY: str = Field(..., description='Proxy api key(MUST be set in production)')
 
     # =========== Music library config =========
     MUSIC_LIBRARY_PATH: Path = Field(default=PROJECT_ROOT / 'music_library', description='Music library root directory(can be overridden by environment variables)')
@@ -138,12 +136,20 @@ class Settings(BaseSettings):
     # ========== CORS config ============
     CORS_ORIGINS: list[str] = Field(['*'], description='allowed origins')
 
+    # ========== CoverArt API config ====
+    COVER_ART_BASE_URL: str = Field('http://coverartarchive.org', description='cover art base url')
+    COVER_ART_PATH: list[str] = Field([
+        '/release/{release_id}/front',
+        '/release/{release_id}/back',
+    ], description='cover art path')
+    CACHE_EXPIRE: int = Field(300, description='cache expire time(seconds)')
+    CACHE_MAX: int = Field(100, description='cache max items')
+
     # ========== Lyric config ===========
     LYRIC_OUT_BASE_URL:str = Field('http://localhost:28883/api/v1/lyrics/', description='lyric server address base url')
 
     # ========== Other variables ========
     MAX_UPDATE_META_BATCH_COUNT: int = Field(20, description='max batch count of items to update metadata')
-    MAX_META_COVER_SIZE: int = Field(1024 * 1024 * 1, description='max size of cover art')
     
 settings = Settings()
 

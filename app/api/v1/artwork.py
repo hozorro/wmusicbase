@@ -9,9 +9,11 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
+from app.core.config import settings
 from app.services.artwork_service import ArtworkService
+from app.services.fetchcoverart import get_cover_art, cover_cache
 
 router = APIRouter()
 
@@ -43,6 +45,22 @@ async def get_playlist_artwork(playlist_id: int | str, service: ArtworkService =
         return FileResponse(cache_path)
     raise HTTPException(status_code=404, detail='Playlist artwork not Found')
 
+@router.get('/staging/{release_id}')
+async def get_cover(release_id: str):
+    try:
+        cover_data = get_cover_art(release_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error when fetch cover art: {str(e)}')
+    if cover_data is None:
+        raise HTTPException(status_code=404, detail='Cover art not found')
+    return Response(
+        content=cover_data,
+        media_type='image/jpeg',
+        headers={
+            'Cache-Control': f'max-age={settings.CACHE_EXPIRE}',
+            'X-Cache-Status': 'HIT' if release_id in cover_cache else 'MISS'
+        }
+    )
 @router.get('/tmp/track/{path}', tags=['artwork'])
 async def get_tmp_track_artwork(
     path: str, 

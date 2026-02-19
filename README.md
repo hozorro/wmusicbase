@@ -47,9 +47,8 @@ suppose the project is in `/srv/wmusicbase`, the configuration file is as follow
 ```
 [program:wmusicbase]
 directory=/srv/wmusicbase
-command=/srv/wmusicbase/.venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 127.0.0.1:8000
-; if you install gunicorn in the venv, you can use this command
-; command=/srv/wmusicbase/.venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 127.0.0.1:8000
+; if you use more than one worker, you should use redis to share system state
+command=/srv/wmusicbase/.venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 1 -b 127.0.0.1:8000
 user=www-data ; user, change to your user
 autostart=true
 autorestart=true

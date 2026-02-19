@@ -451,4 +451,4 @@ class ArtworkService:
             img_path = await self._save_artwork_to_cache(name, 'tmp', image_data)
             return img_path if img_path else None
         except Exception:
-            logger.error(f'Failed to save artwork for tmp track {file_path}')
+            logger.error(f'Failed to save artwork for tmp track {file_path}')        

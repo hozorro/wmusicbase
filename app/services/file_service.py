@@ -118,10 +118,17 @@ class FileService:
 
     def update_file_metatags(self, session_id: str, filename: str, new_meta: dict, del_id3v1: bool = True, del_apev2: bool = False):
         '''update file metadata'''
+        from app.services.fetchcoverart import get_cover_art, clear_cached_cover
         file_path = self.settings.STAGING_DIR / session_id / 'songs' / filename
-        print(file_path)
+        release_id = new_meta.get('mb_albumid', None)
+        print(new_meta.get('use_matched_cover', False), release_id)
+        if new_meta.get('use_matched_cover', False) and release_id:
+            cover_data = get_cover_art(release_id)
+            if cover_data:
+                new_meta['cover_art_data'] = cover_data
         audio_meta = AudioMeta(str(file_path))
         audio_meta.update_metadata(new_meta, del_id3v1, del_apev2)
+        clear_cached_cover(release_id)
 
 class ArchiveService:
     '''music archive service'''

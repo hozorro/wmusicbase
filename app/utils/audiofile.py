@@ -13,7 +13,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, Encoding
 from mutagen.apev2 import APEv2, APENoHeaderError
 from app.schemas.filething import FileInfo
-from .metadata import decode_tag_value, parse_metadata, write_metadata, extract_cover_art_hash, download_cover_art
+from .metadata import decode_tag_value, parse_metadata, write_metadata, extract_cover_art_hash
 from .common import decode_object, parse_year, parse_multiple_value
 
 _KEY_MAP = {

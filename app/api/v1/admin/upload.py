@@ -10,9 +10,11 @@
 
 
 import json, gc
-from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends, Request
+from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends, Request, Response
 from app.services.file_service import FileService, ArchiveService
+from app.services.fetchcoverart import get_cover_art, cover_cache
 from app.core.deps import SettingsDep, ADMIN_DEPS
+from app.core.config import settings
 from app.core.exceptions import BusinessException
 from app.utils.aidmatch import generate_fingerprint, match_fingerprint
 from app.schemas.common import ResponseModel, CountResponse
@@ -105,17 +107,7 @@ async def update_version(session_id: str, input: UpdateVerionList, service: File
 @router.post('/staging/sessions/{session_id}/updatemetatags', response_model=ResponseModel[CountResponse])
 async def update_metatags(session_id: str, input: UpdateMetaTagsList, service: FileService = Depends(FileService)):
     try:
-        for item in input.items:
-            data = {k: v for k, v in item.model_dump().items() if k != 'id'}
-            service.update_file_metatags(session_id, item.id, data)
-        return ResponseModel(data=CountResponse(count=len(input.items)))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when update metadata: {str(e)}')
-@router.post('/staging/sessions/{session_id}/updatemetadatas', response_model=ResponseModel[CountResponse])
-async def update_metadatas(session_id: str, request: Request, settings: SettingsDep, service: FileService = Depends(FileService)):
-    form_data = await request.form()
-    try:
-        batch_count = int(form_data.get('batch_count', 0))
+        batch_count = input.batch_count
         if batch_count <= 0:
             raise HTTPException(status_code=400, detail='Invalid batch count')
         if batch_count > settings.MAX_UPDATE_META_BATCH_COUNT:
@@ -123,43 +115,64 @@ async def update_metadatas(session_id: str, request: Request, settings: Settings
     except ValueError:
         raise HTTPException(status_code=400, detail='Invalid batch count')
     
-    success_count = 0
-    fail_count = 0
-    fail_details = []
+    try:
+        for item in input.items:
+            print(item.model_dump())
+            data = {k: v for k, v in item.model_dump().items() if k != 'id'}
+            service.update_file_metatags(session_id, item.id, data)
+        return ResponseModel(data=CountResponse(count=len(input.items)))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error when update metadata: {str(e)}')
 
-    for k, v in form_data.items():
-        meta_data = None
-        cover = None
-        cover_data = None
-        if k.startswith('meta_'):
-            try:
-                meta_id = k.split('_', 1)[1]
-                try:
-                    meta_data = json.loads(v)
-                except json.JSONDecodeError:
-                    fail_details.append(f'Invalid JSON for meta_id: {meta_id}')
-                    fail_count += 1
-                    continue
-                cover = form_data.get(f'cover_{meta_id}')
-                if cover and not isinstance(cover, str):
-                    if cover.size > settings.MAX_META_COVER_SIZE:
-                        fail_details.append(f'Cover art size exceeds limit for meta_id: {meta_id}')
-                        fail_count += 1
-                        continue
-                    cover_data = await cover.read()
-                    meta_data['cover_art_data'] = cover_data
-                    await cover.close()
-                service.update_file_metatags(session_id, meta_id, meta_data)
-                success_count += 1
-            except Exception as e:
-                fail_count += 1
-                fail_details.append(f'Error when update metadata: {str(e)[:100]}')
-            finally:
-                del meta_data, cover, cover_data
-                gc.collect()
-    if success_count != batch_count:
-        raise BusinessException(code=1002, msg='partial success', detail='\n'.join(fail_details))
-    return ResponseModel(data=CountResponse(count=success_count))
+# @router.post('/staging/sessions/{session_id}/updatemetadatas', response_model=ResponseModel[CountResponse])
+# async def update_metadatas(session_id: str, request: Request, settings: SettingsDep, service: FileService = Depends(FileService)):
+#     form_data = await request.form()
+#     try:
+#         batch_count = int(form_data.get('batch_count', 0))
+#         if batch_count <= 0:
+#             raise HTTPException(status_code=400, detail='Invalid batch count')
+#         if batch_count > settings.MAX_UPDATE_META_BATCH_COUNT:
+#             raise HTTPException(status_code=400, detail='Batch count overload')
+#     except ValueError:
+#         raise HTTPException(status_code=400, detail='Invalid batch count')
+    
+#     success_count = 0
+#     fail_count = 0
+#     fail_details = []
+
+#     for k, v in form_data.items():
+#         meta_data = None
+#         cover = None
+#         cover_data = None
+#         if k.startswith('meta_'):
+#             try:
+#                 meta_id = k.split('_', 1)[1]
+#                 try:
+#                     meta_data = json.loads(v)
+#                 except json.JSONDecodeError:
+#                     fail_details.append(f'Invalid JSON for meta_id: {meta_id}')
+#                     fail_count += 1
+#                     continue
+#                 cover = form_data.get(f'cover_{meta_id}')
+#                 if cover and not isinstance(cover, str):
+#                     if cover.size > settings.MAX_META_COVER_SIZE:
+#                         fail_details.append(f'Cover art size exceeds limit for meta_id: {meta_id}')
+#                         fail_count += 1
+#                         continue
+#                     cover_data = await cover.read()
+#                     meta_data['cover_art_data'] = cover_data
+#                     await cover.close()
+#                 service.update_file_metatags(session_id, meta_id, meta_data)
+#                 success_count += 1
+#             except Exception as e:
+#                 fail_count += 1
+#                 fail_details.append(f'Error when update metadata: {str(e)[:100]}')
+#             finally:
+#                 del meta_data, cover, cover_data
+#                 gc.collect()
+#     if success_count != batch_count:
+#         raise BusinessException(code=1002, msg='partial success', detail='\n'.join(fail_details))
+#     return ResponseModel(data=CountResponse(count=success_count))
 
 @router.post('/staging/sessions/{session_id}/archive', response_model=ResponseModel[ArchiveResponse])
 async def archive_session_route(
@@ -189,3 +202,20 @@ async def match(fingerprint: Fingerprint):
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=f'Error when match song metadata: {str(e)}')
     return ResponseModel(data=MatchAcoustResponse(matched_list=acoust_info_list))
+
+@router.get('/staging/coverart/{release_id}')
+async def get_cover(release_id: str):
+    try:
+        cover_data = get_cover_art(release_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error when fetch cover art: {str(e)}')
+    if cover_data is None:
+        raise HTTPException(status_code=404, detail='Cover art not found')
+    return Response(
+        content=cover_data,
+        media_type='image/jpeg',
+        headers={
+            'Cache-Control': f'max-age={settings.CACHE_EXPIRE}',
+            'X-Cache-Status': 'HIT' if release_id in cover_cache else 'MISS'
+        }
+    )

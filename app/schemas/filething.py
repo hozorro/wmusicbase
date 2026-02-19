@@ -118,8 +118,10 @@ class UpdateVerionList(BaseModel):
 
 class UpdateMetaTags(MetaInfo):    # multi tags
     id: str
+    use_matched_cover: bool | None
 
 class UpdateMetaTagsList(BaseModel):
+    batch_count: int
     items: list[UpdateMetaTags]
 
 class UpdateMetaTagList(BaseModel): # single tag
