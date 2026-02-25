@@ -10,6 +10,12 @@ cd wmusicbase
 * install dependencies
 `uv sync`
 
+* install chromaprint
+  * If you do not use chromaprint to generate fingerprint of audio files to match musicbrainz info, you can skip this step.
+  * Chromaprint is a library for fingerprinting audio files. There are two ways to use chromaprint:
+    * make the chromaprint dynamic library from [source code](https://github.com/acoustid/chromaprint)
+    * the [fpcalc command-line tool](https://github.com/acoustid/chromaprint/releases). If you use fpcalc, either ensure that it is on your $PATH or set the FPCALC environment variable to its location.
+
 * create or edit .env(see .env.example)
 
 * initialization

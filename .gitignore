@@ -161,6 +161,8 @@ cython_debug/
 
 # Static files
 media/
+fpcalc.exe
+libchromaprint.*
 
 # test stuff
 tests/
