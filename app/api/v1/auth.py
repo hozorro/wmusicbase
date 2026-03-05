@@ -9,54 +9,48 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select, func
-from app.core.db import get_db
-from app.core.security import verify_password, create_access_token, get_password_hash, create_refresh_token, verify_token
 from app.core.exceptions import credentials_exception
-from app.core.deps import auth2_scheme, get_current_user
+from app.core.deps import get_current_user, ClientTypeDep, SettingsDep, DbDep
 from app.core.state import system_state
-from app.models import User
+from app.models.user import User
 from app.schemas.common import ResponseModel
 from app.schemas.sysinfo import InitializedResponse
-from app.schemas.user import UserCreate, UserResponse, TokenData, CurrentUser
-from typing import Annotated
+from app.schemas.user import UserCreate, UserResponse, CurrentUser
+from app.schemas.token import LoginRequest, TokenRefreshRequest, TokenResponse
+from app.services.auth_service import AuthService
 
 router = APIRouter()
 
-@router.post('/login', response_model=ResponseModel[TokenData])
+@router.post('/login', response_model=ResponseModel[TokenResponse])
 async def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    db: AsyncSession = Depends(get_db),
+    data: LoginRequest,
+    client_type: ClientTypeDep,
+    service: AuthService = Depends(AuthService),
 ):
     ''' login'''
-    
-    result = await db.execute(select(User).where(User.username == form_data.username))
-    user = result.scalar_one_or_none()
-    if not user or not verify_password(form_data.password, user.password_hash):
+    user = await service.authenticate_user(data.username, data.password)
+    if not user:
         raise credentials_exception
     
-    access_token = create_access_token(data={'sub': user.username})
-    refresh_token = create_refresh_token(data={'sub': user.username})
-    user.refresh_token = refresh_token
-    await db.commit()
+    access_token = service.create_access_token(user.id, client_type)
+    refresh_token = await service.create_refresh_token(user.id, client_type, data.device_id)
 
     return ResponseModel(
         code=200,
         msg='ok',
-        data=TokenData(
+        data=TokenResponse(
             access_token=access_token, 
-            refresh_token=refresh_token,
-            token_type='bearer'
+            refresh_token=refresh_token
         )
     )
 
 @router.post('/register', response_model=ResponseModel[UserResponse])
 async def register(
     user: UserCreate,
-    db: AsyncSession = Depends(get_db)
+    db: DbDep,
+    service: AuthService = Depends(AuthService)
 ):
     # check if any user exists(can only register when first run and no user exists)
     user_count = await db.scalar(select(func.count(User.id)))
@@ -66,7 +60,7 @@ async def register(
             detail='Registration closed after first user'
         )
     # create user
-    hash_password = get_password_hash(user.password)
+    hash_password = service.get_password_hash(user.password)
     is_admin = user.is_admin
     user_db = User(
         username=user.username,
@@ -82,35 +76,44 @@ async def register(
         data=UserResponse.model_validate(user_db)
     )
 
-@router.get('/refresh', response_model=ResponseModel[TokenData])
+@router.post('/refresh', response_model=ResponseModel[TokenResponse])
 async def refresh_token(
-    refresh_token: Annotated[str, Depends(auth2_scheme)],
-    db: AsyncSession = Depends(get_db)
+    data: TokenRefreshRequest,
+    request: Request,
+    client_type: ClientTypeDep,
+    settings: SettingsDep,
+    service: AuthService = Depends(AuthService)
 ):
     ''' refresh token'''
-    payload = verify_token(refresh_token)
-    if not payload or payload.get('type') != 'refresh':
+    try:
+        new_access, new_refresh = await service.refresh_with_rotation(
+            client_type,
+            data.refresh_token,
+            device_id=request.headers.get('X-Device-Id')
+        )
+        return ResponseModel(
+            code=200,
+            msg='ok',
+            data=TokenResponse(
+                access_token=new_access, 
+                refresh_token=new_refresh,
+                expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
+        )
+    except Exception as e:
         raise credentials_exception
-    username = payload.get('sub')
-    result = await db.execute(select(User).where(User.username == username))
-    user = result.scalar_one_or_none()
-    if not user or user.refresh_token != refresh_token:
-        raise credentials_exception
-    new_access_token = create_access_token(data={'sub': username})
-    return ResponseModel(
-        code=200,
-        msg='ok',
-        data=TokenData(access_token=new_access_token, token_type='bearer')
-    )
 
 @router.post('/logout', response_model=ResponseModel[None])
 async def logout(
+    request: Request,
+    client_type: ClientTypeDep,
+    service: AuthService = Depends(AuthService),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
 ) -> ResponseModel:
     ''' logout'''
-    current_user.refresh_token = None
-    await db.commit()
+    logout_all = request.query_params.get('all', 'false') == 'true'
+    device_id = request.headers.get('X-Device-Id')
+    await service.revoke_token(current_user.id, client_type, device_id, logout_all)
     return ResponseModel(code=200, msg='ok', data=None)
 
 @router.get('/me', response_model=ResponseModel[CurrentUser])

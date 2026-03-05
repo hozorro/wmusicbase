@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     # ======= ==== Security config =============
     SECRET_KEY: str = Field(..., description='JWT key(MUST randomly generated in production)')
     ACOUSTID_API_KEY: str = Field(..., description='AcoustID dev api-key(from acoustid.org)')
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(60 * 24 * 7, description='access token expire minutes(default: 7 days)')
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(30, description='refresh token expire days(default: 30)')
 
     # =========== Music library config =========
     MUSIC_LIBRARY_PATH: Path = Field(default=PROJECT_ROOT / 'music_library', description='Music library root directory(can be overridden by environment variables)')

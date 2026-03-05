@@ -42,7 +42,7 @@ from .track import Track, track_artists, track_genres
 from .artist import Artist
 from .album import Album
 from .genre import Genre
-from .user import User
+from .user import User, UserToken
 from .playback import Playlist, TrackHit, TrackFav, ArtistFav, PlaylistTrack, PlaylistHit, SyncMeta
 
 __all__ = [
@@ -54,6 +54,7 @@ __all__ = [
     "Album",
     "Genre",
     "User",
+    "UserToken",
     "Playlist",
     "TrackHit",
     "TrackFav",
