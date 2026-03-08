@@ -17,11 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 from app.core.cache import lru_cache
 from app.core.deps import DbDep, AdminDep
-from app.core.config import settings
+from app.core.config import settings, create_required_directories
 from app.core.state import system_state
 from app.models import Track, Album, Artist, Folder, Genre, Playlist, track_artists, TrackHit
 from app.services.sync import Syncer
-from app.schemas.common import ResponseModel, StrResponse, TestBase
+from app.schemas.common import ResponseModel, StrResponse, MediaPathList, SuccessMsgModel, TestBase
 from app.schemas.sysinfo import DashboardInfo, ScanInfo
 
 router = APIRouter()
@@ -102,8 +102,6 @@ async def _get_playback_stats(db: AsyncSession):
 @router.get('/scaninfo', response_model=ResponseModel[ScanInfo])
 async def get_scan_info():
     return ResponseModel(
-        code=200,
-        msg='ok',
         data=ScanInfo.model_validate({
             'is_scanning': system_state.is_scanning,
             'scan_progress': system_state.scan_progress
@@ -146,8 +144,6 @@ async def get_dashboard_stats(
         'watcher_path': str(settings.MUSIC_LIBRARY_PATH)
     }
     return ResponseModel(
-        code=200,
-        msg='ok',
         data=DashboardInfo.model_validate({
             'system_status': 'ready',
             'current_user': current_user.username,
@@ -164,13 +160,59 @@ async def initialize_meta(db: DbDep):
     await syncer.initialize_sync_meta()
     return ResponseModel(code=200, msg='ok')
 
+@router.get('/initdirs', response_model=ResponseModel[MediaPathList])
+async def get_init_dir():
+    init_dirs = [
+        {
+            'name': 'Track Artwork', 
+            'path': settings.TRACK_ARTWORK_DIR
+        }, {
+            'name': 'Album Artwork', 
+            'path': settings.ALBUM_ARTWORK_DIR
+        }, {
+            'name': 'Artist Artwork', 
+            'path': settings.ARTIST_ARTWORK_DIR
+        }, {
+            'name': 'Playlist Artwork', 
+            'path': settings.PLAYLIST_ARTWORK_DIR
+        }, {
+            'name': 'Upload',
+            'path': settings.TEMP_DIR
+        }, {
+            'name': 'Tmp Artwork',
+            'path': settings.TMP_ARTWORK_DIR
+        },{
+            'name': 'Staging',
+            'path': settings.STAGING_DIR
+        }, {
+            'name': 'Playlists Temp',
+            'path': settings.PLAYLISTS_TMP_DIR
+        }, {
+            'name': 'Logs',
+            'path': settings.LOG_DIR
+        }
+    ]
+    for init_dir in init_dirs:
+        if not init_dir['path'].exists():
+            init_dir['path'] = None
+        if init_dir['name'] == 'Logs':
+            init_dir['path'] = settings.LOG_DIR.relative_to(settings.PROJECT_ROOT)
+            
+
+    return ResponseModel(data=MediaPathList.model_validate(init_dirs))
+
+@router.post('/initdirs', response_model=ResponseModel[SuccessMsgModel])
+async def get_init_dir():
+    create_required_directories()
+    return ResponseModel(data=SuccessMsgModel())
+
 @router.post('/test', response_model=ResponseModel[StrResponse])
 async def test(input: TestBase):
-    return ResponseModel(code=200, msg='ok', data=StrResponse(input.text))
+    return ResponseModel(data=StrResponse(input.text))
 @router.post('/backops', response_model=ResponseModel[StrResponse])
 async def backops():
-    return ResponseModel(code=200, msg='ok', data=StrResponse('success'))
+    return ResponseModel(data=StrResponse('success'))
 
 @router.get('/test', response_model=ResponseModel[StrResponse])
 async def test():
-    return ResponseModel(code=200, msg='ok', data=StrResponse('hello'))
+    return ResponseModel(data=StrResponse('hello'))

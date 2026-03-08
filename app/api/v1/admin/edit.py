@@ -9,10 +9,10 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException
-from app.schemas.common import ResponseModel, SuccessMsgModel
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
+from app.schemas.common import ResponseModel, SuccessMsgModel, NumResponse
 from app.schemas.filething import UpdateMetaTagList
-from app.schemas.artist import StartCharsResponse, ArtistsResponse, ArtistResponse, ArtistArtCreate, artist_art_upload_from_form
+from app.schemas.artist import StartCharsResponse, ArtistsResponse, ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate
 from app.schemas.album import AlbumResponse, AlbumArtCreate, album_art_upload_from_form
 from app.core.exceptions import BusinessException
 from app.core.deps import ADMIN_DEPS
@@ -47,7 +47,7 @@ async def get_album(album_id: int, service: AlbumService = Depends(AlbumService)
         raise BusinessException(code=10004, msg='album not exists', detail='album id: ' + str(album_id))
     return ResponseModel(data=AlbumResponse.model_validate(album))
 
-@router.post('/uploadartistart', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
+@router.post('/uploadartistart', response_model=ResponseModel[ArtistArtUpdate], tags=['edit'])
 async def upload_artist_art(item: ArtistArtCreate = Depends(artist_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
     if item.file.content_type not in ['image/jpeg', 'image/png']:
         raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
@@ -56,9 +56,9 @@ async def upload_artist_art(item: ArtistArtCreate = Depends(artist_art_upload_fr
         await item.file.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to save artist art: {str(e)}')
-    return ResponseModel(data=SuccessMsgModel())
+    return ResponseModel(data=ArtistArtUpdate.model_validate({id: item.id, 'art_type': item.art_type}))
 
-@router.post('/uploadalbumart', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
+@router.post('/uploadalbumart', response_model=ResponseModel[NumResponse], tags=['edit'])
 async def upload_album_art(item: AlbumArtCreate = Depends(album_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
     if item.file.content_type not in ['image/jpeg', 'image/png']:
         raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
@@ -67,7 +67,7 @@ async def upload_album_art(item: AlbumArtCreate = Depends(album_art_upload_from_
         await item.file.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to save album art: {str(e)}')
-    return ResponseModel(data=SuccessMsgModel())
+    return ResponseModel(data=NumResponse(item.id))
 
 @router.post('/updatetrackfieldtag', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
 async def update_track_field_tag(data: UpdateMetaTagList, service: TrackService = Depends(TrackService)):

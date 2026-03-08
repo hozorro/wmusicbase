@@ -9,9 +9,10 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, Form
 from fastapi.responses import FileResponse
 from app.core.config import settings
+from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.services.artwork_service import ArtworkService
 from app.services.fetchcoverart import get_cover_art, cover_cache
 
@@ -73,3 +74,20 @@ async def get_tmp_track_artwork(
     if cache_path: 
         return FileResponse(cache_path)
     raise HTTPException(status_code=404, detail=f'Tmp Track artwork not Found: {file_path}')
+
+@router.get('/default/{art_type}', tags=['artwork'])
+async def get_default_artwork(art_type: str, service: ArtworkService = Depends(ArtworkService)):
+    cache_path = await service.get_default_art(art_type)
+    if cache_path: 
+        return FileResponse(cache_path)
+    raise HTTPException(status_code=404, detail='Default artwork not Found')
+
+@router.post('/default', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
+async def set_default_art(cover: UploadFile, art_type: str = Form(...), service: ArtworkService = Depends(ArtworkService)):
+    try:
+        if cover.content_type not in ['image/jpeg', 'image/png']:
+            raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
+        await service.set_default_art(art_type, cover)
+        return ResponseModel(data=SuccessMsgModel())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to set default {art_type} art.')

@@ -29,7 +29,7 @@ class FolderService:
             .where(Folder.id == folder_id)
             .options(
                 selectinload(Folder.children).load_only(Folder.id, Folder.path),
-                selectinload(Folder.tracks).load_only(Track.id, Track.title),
+                selectinload(Folder.tracks).load_only(Track.id, Track.title, Track.cover_art_hash),
             )   
         )
         result = await self.db.execute(stmt)

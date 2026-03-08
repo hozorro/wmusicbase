@@ -54,7 +54,7 @@ class GenreService:
         result = await self.db.execute(
             select(Track)
             .options(
-                load_only(Track.id, Track.title),
+                load_only(Track.id, Track.title, Track.cover_art_hash),
                 selectinload(Track.artists).load_only(Artist.name)
             )
             .join(track_genres, Track.id == track_genres.c.track_id)

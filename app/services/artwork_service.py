@@ -11,6 +11,7 @@
 
 import re, aiofiles, hashlib
 from pathlib import Path
+from enum import Enum
 from fastapi import UploadFile
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
@@ -18,6 +19,7 @@ from app.models import Track, track_artists, Artist, Album, Playlist
 from app.core.deps import SettingsDep, DbDep
 from app.core.logger import logger
 from app.utils.metadata import extract_embedded_artwork
+from app.utils.image import resize_image
 
 # cache dir
 COVER_FILENAME_PATTERNS = [
@@ -33,18 +35,24 @@ COVER_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', 'bmp']
 ARTIST_FACE_PATTERNS = COVER_FILENAME_PATTERNS + [r'^face']
 ARTIST_PORTRAIT_PATTERNS = ['portrait.jpg', 'portrait.png']
 
+class ArtType(str, Enum):
+    TRACK = 'track'
+    ARTIST = 'artist'
+    ALBUM = 'album'
+    PLAYLIST = 'playlist'
+
 class ArtworkService:
     """handle artwork of track, artist and album"""
     def __init__(self, db: DbDep, settings: SettingsDep):
         self.db = db
         self.settings = settings
 
-    async def _save_artwork_to_cache(self, id: int, img_cate: str, cover_data: bytes | Path, additional: str = '') -> Path | None:
+    async def _save_artwork_to_cache(self, id: int, art_type: ArtType, cover_data: bytes | Path, additional: str = '') -> Path | None:
         '''save artwork to cache(unified format with jpg, and compressed)'''
-        if img_cate not in ['track', 'artist', 'album', 'playlist', 'tmp']: 
-            logger.error(f'Invalid img_cate: {img_cate}')
+        if art_type not in ['track', 'artist', 'album', 'playlist', 'tmp']: 
+            logger.error(f'Invalid img_cate: {art_type}')
             return None
-        cache_dir = self.settings.ARTWORK_DIR / f'{img_cate}s'
+        cache_dir = self.settings.ARTWORK_DIR / f'{art_type}s'
         cache_path = cache_dir / (f'{id}_{additional}.jpg' if additional else f'{id}.jpg')
         try:
             img_data = cover_data
@@ -53,25 +61,15 @@ class ArtworkService:
                     img_data = await f.read()
         
             # use pillow to unified format and compress the image(avoid big size image consuming unlimited store space)
-            from PIL import Image
-            from io import BytesIO
-            with Image.open(BytesIO(img_data)) as img:
-                max_width = 784
-                if img.width > max_width:
-                    ratio = max_width / img.width
-                    new_height = int(img.height * ratio)
-                    img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
-                img_byte_arr = BytesIO()
-                img.convert('RGB').save(img_byte_arr, format='JPEG', quality=90)
-                img_byte_arr = img_byte_arr.getvalue()
+            img_byte_arr = resize_image(img_data)
 
             # async write files
             async with aiofiles.open(cache_path, 'wb') as f:
                 await f.write(img_byte_arr)
-            logger.info(f'Saved artwork of {img_cate}_{id} to cache: {cache_path}')
+            logger.info(f'Saved artwork of {art_type}_{id} to cache: {cache_path}')
             return cache_path
         except Exception as e:
-            logger.error(f'Failed to save artwork of {img_cate}_{id} to cache: {e}')
+            logger.error(f'Failed to save artwork of {art_type}_{id} to cache: {e}')
             return None
     async def get_or_cache_track_artwork(self, track_id: int) -> Path | None:
         '''
@@ -105,7 +103,7 @@ class ArtworkService:
         except Exception:
             return default_artwork_path # None or default
     
-    def invalidate_artwork_cache(self, id: int, art_type: str, art_type_additional: str = '') -> bool:
+    def invalidate_artwork_cache(self, id: int, art_type: ArtType, art_type_additional: str = '') -> bool:
         '''
         invalidate artwork cache(if exists)
         Args:
@@ -447,8 +445,27 @@ class ArtworkService:
         if not image_data: 
             return None
         
+        img_path = await self._save_artwork_to_cache(name, 'tmp', image_data)
+        return img_path
+    
+    async def get_default_art(self, art_type: ArtType) -> Path | None:
+        if art_type == 'artist':
+            default_art = (self.settings.ARTWORK_DIR / 'artists' / 'default_face.jpg').resolve()
+        else:
+            default_art = (self.settings.ARTWORK_DIR / f'{art_type}s' / 'default.jpg').resolve()
+        if default_art.exists(): 
+            return default_art
+        return None
+    async def set_default_art(self, art_type: ArtType, cover: UploadFile) -> None:
         try:
-            img_path = await self._save_artwork_to_cache(name, 'tmp', image_data)
-            return img_path if img_path else None
-        except Exception:
-            logger.error(f'Failed to save artwork for tmp track {file_path}')        
+            cover_data = await cover.read()
+
+            img_byte_arr = resize_image(cover_data, 1024)
+
+            default_path = self.settings.ARTWORK_DIR / f'{art_type}s' / 'default.jpg'
+            async with aiofiles.open(default_path, 'wb') as f: 
+                await f.write(img_byte_arr)
+            logger.info(f'Set default {art_type} artwork')
+        except Exception as e: 
+            logger.error(f'Failed to set default {art_type} artwork.')
+            raise e

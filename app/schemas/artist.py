@@ -24,6 +24,10 @@ async def artist_art_upload_from_form(
 ):
     return ArtistArtCreate(id=id, art_type=art_type, art=art)
 
+class ArtistArtUpdate(BaseModel):
+    id: int
+    art_type: str
+
 # response models
 class ArtistsResponse(RootModel):
     root: list[ArtistBase] = Field(..., description='Artists array')

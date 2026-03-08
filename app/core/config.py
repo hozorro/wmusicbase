@@ -15,7 +15,7 @@ from pydantic import Field, PostgresDsn, field_validator, ValidationInfo
 from typing import Optional, Any
 
 # ==============base path constant, project root directory =================
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_BASE = Path(__file__).resolve().parent.parent.parent
 
 class Settings(BaseSettings):
     '''settings'''
@@ -71,12 +71,13 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(30, description='refresh token expire days(default: 30)')
 
     # =========== Music library config =========
-    MUSIC_LIBRARY_PATH: Path = Field(default=PROJECT_ROOT / 'music_library', description='Music library root directory(can be overridden by environment variables)')
+    MUSIC_LIBRARY_PATH: Path = Field(default=PROJECT_BASE / 'music_library', description='Music library root directory(can be overridden by environment variables)')
     MUSIC_FILE_EXTENSIONS: list[str] = Field(['.mp3', '.flac'], description='Music file extensions(default: [.mp3, .flac]，can be overridden by environment variables)')
 
     # ========== App base path config ===========
-    MEDIA_ROOT: Path = Field(default=PROJECT_ROOT / 'media', description='Media file root directory(can be overridden by environment variables)') 
-    LOG_DIR: Path = Field(default=PROJECT_ROOT / 'logs', description='Log directory(can be overridden by environment variables)') 
+    PROJECT_ROOT: Path = Field(default=PROJECT_BASE, description='Project root directory(can be overridden by environment variables)')
+    MEDIA_ROOT: Path = Field(default=PROJECT_BASE / 'media', description='Media file root directory(can be overridden by environment variables)') 
+    LOG_DIR: Path = Field(default=PROJECT_BASE / 'logs', description='Log directory(can be overridden by environment variables)') 
     
     # media file directory, can not be changed by config file, only as property
     @property

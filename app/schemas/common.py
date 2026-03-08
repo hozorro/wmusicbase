@@ -124,6 +124,20 @@ class TrackMedium(TrackBase):
     artists: list[ArtistBase]
 
 
+class MediaPath(BaseModel):
+    name: str
+    path: Path | str | None
+
+    @field_validator('path')
+    @classmethod
+    def extract_path(cls, v: Path) -> str:
+        if isinstance(v, Path):
+            return f'{str('[app-base]' / v)}'
+        return v
+
+class MediaPathList(RootModel):
+    root: list[MediaPath]
+
 # ==== test ====
 class TestBase(BaseModel):
     count: int | None = None
