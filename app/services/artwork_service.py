@@ -77,31 +77,28 @@ class ArtworkService:
         return cached file path if exists else None
         '''
         cache_path = self.settings.TRACK_ARTWORK_DIR / f'{track_id}.jpg'
-        default_artwork_path = self.settings.TRACK_ARTWORK_DIR / 'default.jpg'
 
         # 1. check cache
         if cache_path.exists():
             # optional: verify the hash compare with cover art hash
             return cache_path
         
-        # 2. get track from db
+        # 2. get embedded artwork from track
         result = await self.db.execute(select(Track).where(Track.id == track_id))
         track = result.scalar_one_or_none()
-        if not track or not track.cover_art_hash:
-            return default_artwork_path # None or default
-        
-        # 3. extract embedded artwork
-        track_path = self.settings.MUSIC_LIBRARY_PATH / track.path
-        image_data = extract_embedded_artwork(str(track_path))
-        if not image_data:
-            return default_artwork_path # None or default
-        
-        # 4. save as jpeg file(unified image size)
-        try:
-            img_path = await self._save_artwork_to_cache(track_id, 'track', image_data)
-            return img_path if img_path else None
-        except Exception:
-            return default_artwork_path # None or default
+        if track and track.cover_art_hash:
+            track_path = self.settings.MUSIC_LIBRARY_PATH / track.path
+            image_data = extract_embedded_artwork(str(track_path))
+            if image_data:
+                # save as jpeg file(unified image size)
+                img_path = await self._save_artwork_to_cache(track_id, 'track', image_data)
+                if img_path:
+                    return img_path
+        # 3. try to use default artwork
+        default_artwork_path = self.settings.TRACK_ARTWORK_DIR / 'default.jpg'
+        if default_artwork_path.exists(): # use default artwork if exists
+            return default_artwork_path
+        return None
     
     def invalidate_artwork_cache(self, id: int, art_type: ArtType, art_type_additional: str = '') -> bool:
         '''
