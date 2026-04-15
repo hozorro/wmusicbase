@@ -206,6 +206,16 @@ async def get_init_dir():
     create_required_directories()
     return ResponseModel(data=SuccessMsgModel())
 
+from app.schemas.sysinfo import ArtistArtRequest, ArtistArtResponse, SetArtistArtsRequest, SetArtistArtsResponse
+from tests.db_folder import get_folder_artist_arts, set_folder_artist_art
+@router.post('/artistarts', response_model=ResponseModel[ArtistArtResponse])
+async def get_artist_arts(option: ArtistArtRequest):
+    result = get_folder_artist_arts(option.area, option.char_range)
+    return ResponseModel(data=ArtistArtResponse(result))
+@router.post('/setartistarts', response_model=ResponseModel[SetArtistArtsResponse])
+async def set_artist_arts(option: SetArtistArtsRequest):
+    result = set_folder_artist_art(option.area, option.char_range, option.covers)
+    return ResponseModel(data=SetArtistArtsResponse.model_validate(result))
 @router.post('/test', response_model=ResponseModel[StrResponse])
 async def test(input: TestBase):
     return ResponseModel(data=StrResponse(input.text))

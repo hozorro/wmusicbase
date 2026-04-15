@@ -9,7 +9,7 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException
 from app.schemas.common import ResponseModel, SuccessMsgModel, NumResponse
 from app.schemas.filething import UpdateMetaTagList
 from app.schemas.artist import StartCharsResponse, ArtistsResponse, ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate

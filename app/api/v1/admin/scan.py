@@ -15,19 +15,21 @@ from fastapi.responses import StreamingResponse
 from app.core.state import system_state
 from app.core.deps import require_admin, SettingsDep
 from app.core.logger import logger
+from app.core.exceptions import BusinessException
 from app.services.scanner import Scanner
 from app.services.folder_service import FolderService
-from app.background.watcher import start_watcher, stop_watcher
+from app.background.watcher_manager import watcher
 from app.schemas.user import CurrentUser
 from app.schemas.common import ResponseModel
+from app.schemas.filething import ScanOptions
 from app.schemas.sysinfo import ScanFolder
 
 router = APIRouter()
 
-async def run_scan_task(root_path: str):
+async def run_scan_task(root_path: str, is_incremental: bool = False):
     if system_state.is_scanning:
         return
-    scanner = Scanner(root_path)
+    scanner = Scanner(root_path, is_incremental)
     await scanner.run()
 
 def cancel_scan_task():
@@ -61,10 +63,10 @@ async def get_scan_folder_info(service: FolderService =  Depends(FolderService),
     else:
         return ResponseModel(code=200, msg='ok', data=None)
 @router.post('/start', response_model=ResponseModel[None])
-async def trigger_scan(background_tasks: BackgroundTasks, settings: SettingsDep, current_user: CurrentUser = Depends(require_admin)):
+async def trigger_scan(scan_options: ScanOptions,background_tasks: BackgroundTasks, settings: SettingsDep, current_user: CurrentUser = Depends(require_admin)):
     if system_state.is_scanning:
         return ResponseModel(code=200, msg='ok', data=None)
-    background_tasks.add_task(run_scan_task, settings.MUSIC_LIBRARY_PATH)
+    background_tasks.add_task(run_scan_task, settings.MUSIC_LIBRARY_PATH, scan_options.is_incremental)
     logger.info(f"{current_user.username} started the scanner in background.")
     return ResponseModel(code=200, msg='ok', data=None)
 
@@ -80,12 +82,16 @@ def scan_progress(request: Request, _: CurrentUser = Depends(require_admin)):
 
 @router.post('/startwatcher', response_model=ResponseModel[None])
 async def start_watcher(current_user: CurrentUser = Depends(require_admin)):
-    start_watcher()
-    logger.info(f"👀{current_user.username} started the file watcher.")
-    return ResponseModel(code=200, msg='ok', data=None)
+    success, msg = watcher.start()
+    if success:
+        logger.info(f"👀{current_user.username} started the file watcher.")
+        return ResponseModel(code=200, msg=msg, data=None)
+    raise BusinessException(code=10500, msg=msg, detail='Failed to start watcher.')
 
 @router.post('/stopwatcher', response_model=ResponseModel[None])
 async def stop_watcher(current_user: CurrentUser = Depends(require_admin)):
-    stop_watcher()
-    logger.info(f"👀{current_user.username} stopped the file watcher.")
-    return ResponseModel(code=200, msg='ok', data=None)
+    success, msg = watcher.stop()
+    if success:
+        logger.info(f"👀{current_user.username} stopped the file watcher.")
+        return ResponseModel(code=200, msg=msg, data=None)
+    raise BusinessException(code=10500, msg=msg, detail='Failed to stop watcher.')

@@ -106,3 +106,26 @@ class TransferRequest(BaseModel):
     last_sync: datetime | None = None
 
 # endregion frontend
+
+# region tools
+class ArtistArtRequest(BaseModel):
+    area: Literal['Chinese', 'Foreign']
+    char_range: Literal['A-G', 'H-N', 'O-T', 'U-Z', 'Z_']
+
+class ArtistArt(BaseModel):
+    name: str
+    covers: list[str]
+
+class ArtistArtResponse(RootModel):
+    root: list[ArtistArt]
+
+class SetArtistArtsRequest(BaseModel):
+    area: Literal['Chinese', 'Foreign']
+    char_range: Literal['A-G', 'H-N', 'O-T', 'U-Z', 'Z_']
+    covers: list[dict[str, str]]
+
+class SetArtistArtsResponse(BaseModel):
+    exists: list[str]
+    created: list[str]
+    no_dirs: list[str]
+    total: int

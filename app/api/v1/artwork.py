@@ -9,6 +9,12 @@
 '''
 
 
+# The system will try to find cover art for every entity and cache it.
+# If the cover art is not found, the system will try to set the default cover art.
+# If the default cover art is not found, the system will raise a 404 error.
+# If the frontend receives a 404 error, it will display the default cover art by itself.
+# So the backend default artwork will be priority to the frontend default artwork.
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, Form
 from fastapi.responses import FileResponse
 from app.core.config import settings
@@ -91,3 +97,9 @@ async def set_default_art(cover: UploadFile, art_type: str = Form(...), service:
         return ResponseModel(data=SuccessMsgModel())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to set default {art_type} art.')
+    
+# region tools and tests
+@router.get('/tool/{cover}', tags=['tools'])
+async def get_folder_artist_cover(cover: str, area: str, char_range: str, name: str, service: ArtworkService = Depends(ArtworkService)):
+    cover_path = service.get_folder_artist_art(area, char_range, name, cover)
+    return FileResponse(cover_path)

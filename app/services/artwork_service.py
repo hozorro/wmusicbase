@@ -22,17 +22,16 @@ from app.utils.metadata import extract_embedded_artwork
 from app.utils.image import resize_image
 
 # cache dir
-COVER_FILENAME_PATTERNS = [
-    r'^cover',
-    r'^folder',
-    r'^front',
-    r'^back',
-    r'^album',
-    r'^artwork',
-    r'^poster',
+COVER_FILENAME_PATTERNS = [ # match with sequence
+    re.compile(r'^cover', re.I),
+    re.compile(r'^folder', re.I),
+    re.compile(r'^front', re.I),
+    re.compile(r'^back', re.I),
+    re.compile(r'^album', re.I),
+    re.compile(r'^artwork', re.I),
+    re.compile(r'^poster', re.I),
 ]
 COVER_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', 'bmp']
-ARTIST_FACE_PATTERNS = COVER_FILENAME_PATTERNS + [r'^face']
 ARTIST_PORTRAIT_PATTERNS = ['portrait.jpg', 'portrait.png']
 
 class ArtType(str, Enum):
@@ -83,18 +82,28 @@ class ArtworkService:
             # optional: verify the hash compare with cover art hash
             return cache_path
         
-        # 2. get embedded artwork from track
+        
         result = await self.db.execute(select(Track).where(Track.id == track_id))
         track = result.scalar_one_or_none()
-        if track and track.cover_art_hash:
+        if track:
             track_path = self.settings.MUSIC_LIBRARY_PATH / track.path
-            image_data = extract_embedded_artwork(str(track_path))
-            if image_data:
-                # save as jpeg file(unified image size)
-                img_path = await self._save_artwork_to_cache(track_id, 'track', image_data)
-                if img_path:
+            if track.cover_art_hash:
+                # 2. get embedded artwork from track
+                image_data = extract_embedded_artwork(str(track_path))
+                if image_data:
+                    # save as jpeg file(unified image size)
+                    img_path = await self._save_artwork_to_cache(track_id, 'track', image_data)
+                    if img_path:
+                        return img_path
+            else:
+                # 3. try to use album artwork
+                album_path = track_path.parent
+                img_path = await self.find_album_cover_in_directory(album_path)
+                if img_path: # use album artwork if exists
+                    img_path = await self._save_artwork_to_cache(track_id, 'track', img_path)
                     return img_path
-        # 3. try to use default artwork
+                
+        # 4. try to use default artwork
         default_artwork_path = self.settings.TRACK_ARTWORK_DIR / 'default.jpg'
         if default_artwork_path.exists(): # use default artwork if exists
             return default_artwork_path
@@ -187,25 +196,34 @@ class ArtworkService:
         Returns:
             Path | None: image path, or None if not found
         '''
+        candidates = []
         music_root = Path(self.settings.MUSIC_LIBRARY_PATH)
         for lang in ['Chinese', 'Foreign']:
             for group in ['A-G', 'H-N', 'O-T', 'U-Z', 'Z_']:
                 artist_dir = music_root / lang / group / artist_name
                 if not artist_dir.is_dir(): continue
+                for entry in artist_dir.iterdir():
+                    if entry.is_file() and entry.suffix.lower() in COVER_EXTENSIONS:
+                        candidates.append(entry)
 
-                try:
-                    for entry in artist_dir.iterdir():
-                        if entry.is_file():
-                            file_name = entry.stem.lower()
-                            file_ext = entry.suffix.lower()
+        best_match = None
+        best_weight = len(COVER_FILENAME_PATTERNS)
 
-                            if file_ext in COVER_EXTENSIONS:
-                                for pattern in (ARTIST_FACE_PATTERNS if img_cate == 'face' else ARTIST_PORTRAIT_PATTERNS):
-                                    if re.match(pattern, file_name, re.IGNORECASE):
-                                        return entry
-                except Exception as e:
-                    logger.error(f'Failed to scan artist directory to find artist artwork in {artist_dir}: {e}')
-        return None
+        for c in candidates:
+            lower_name = c.stem.lower()
+            if lower_name.startswith(img_cate):
+                return c
+            
+            for index, pattern in enumerate(COVER_FILENAME_PATTERNS):
+                if index < best_weight:
+                    if pattern.match(lower_name):
+                        best_match = c
+                        best_weight = index
+                        break
+                else:
+                    break
+                
+        return best_match if best_match else None
 
     async def find_common_track_artwork(self, artist_id: int) -> Path | None:
         '''
@@ -273,6 +291,7 @@ class ArtworkService:
         default_img = self.settings.ARTIST_ARTWORK_DIR / ('default_face.jpg' if img_cate == 'face' 
                                                         else 'default_portrait.jpg')
         if default_img.exists(): 
+            # save default image to cache to avoid the 2 steps above for every artist artwork request
             cache_path = await self._save_artwork_to_cache(artist_id, 'artist', default_img, img_cate)
             if cache_path: return cache_path
         
@@ -319,32 +338,36 @@ class ArtworkService:
         # (assume that all the track of the album is in the same directory)
         return Path(album.tracks[0].path).parent.name == album.title
 
-    def get_album_directory(self, album: Album) -> Path:
+    async def get_album_directory(self, album: Album) -> Path | None:
         '''get album directory'''
-        return Path(album.tracks[0].path).parent
+        try:
+            return Path(album.tracks[0].path).parent
+        except:
+            return None
 
-    async def find_album_cover_in_directory(self, album: Album) -> Path | None:
+    async def find_album_cover_in_directory(self, album_dir: Path) -> Path | None:
         '''find cover.jpg / folder.jpg in the album directory'''
         # infer the album directory from any track
         # assume all the track of the album are in the same directory
-        if not album.tracks: return None
 
-        music_root = Path(self.settings.MUSIC_LIBRARY_PATH)
-        track_path = music_root / album.tracks[0].path
-        album_dir = track_path.parent
-        try:
-            for entry in album_dir.iterdir():
-                if entry.is_file():
-                    file_name = entry.stem.lower()
-                    file_ext = entry.suffix.lower()
-
-                    if file_ext in COVER_EXTENSIONS:
-                        for pattern in COVER_FILENAME_PATTERNS:
-                            if re.match(pattern, file_name, re.IGNORECASE):
-                                return entry
-        except Exception as e:
-            logger.error(f'Failed to find album cover for album {album.id} in album directory: {e}')
-        return None
+        candidates = []
+        for entry in (self.settings.MUSIC_LIBRARY_PATH / album_dir).iterdir():
+            if entry.is_file() and entry.suffix.lower() in COVER_EXTENSIONS:
+                candidates.append(entry)
+        
+        best_match = None
+        best_weight = len(COVER_FILENAME_PATTERNS)
+        for c in candidates:
+            for index, pattern in enumerate(COVER_FILENAME_PATTERNS):
+                if index < best_weight:
+                    if pattern.match(c.stem):
+                        best_match = c
+                        best_weight = index
+                        break
+                    else:
+                        break
+        
+        return best_match if best_match else None
 
     async def get_or_cache_album_artwork(self, album_id: int) -> Path | None:
         '''
@@ -355,30 +378,37 @@ class ArtworkService:
         if cache_path.exists(): return cache_path
 
         # 1. get album, preload tracks
-        result = await self.db.execute(select(Album).where(Album.id == album_id).options(selectinload(Album.tracks)))
+        result = await self.db.execute(
+            select(Album)
+            .where(Album.id == album_id)
+            .options(
+                selectinload(Album.tracks)
+                .load_only(Track.path, Track.cover_art_hash)
+            ))
         album = result.scalars().first()
         if not album or not album.tracks:
             return None
         
         # 2. first: find cover.jpg / folder.jpg in the album directory
-        dir_cover = await self.find_album_cover_in_directory(album)
-        if dir_cover:
-            try: 
+        album_dir = self.get_album_directory(album)
+        if album_dir:
+            dir_cover = await self.find_album_cover_in_directory(album_dir)
+            if dir_cover:
                 cache_path = await self._save_artwork_to_cache(album_id, 'album', dir_cover)
                 if cache_path: return cache_path
-            except Exception as e:
-                logger.error(f'Failed to save album cover for album {album_id} from directory: {e}')
 
         # 3. fallback: get the cover art of the track(the first one)
         for track in album.tracks:
             if track.cover_art_hash:
-                cache_path = await self.get_or_cache_track_artwork(track.id)
-                if cache_path: 
-                    return cache_path
+                track_cover_path = await self.get_or_cache_track_artwork(track.id)
+                if track_cover_path: 
+                    cache_path = await self._save_artwork_to_cache(album_id, 'album', track_cover_path)
+                    if cache_path: return cache_path
                 
         # 4. fallback: default image
         default_img = self.settings.ALBUM_ARTWORK_DIR / 'default.jpg'
         if default_img.exists(): 
+            # need to cache to avoid the 3 steps above for every album artwork request
             cache_path = await self._save_artwork_to_cache(album_id, 'album', default_img)
             if cache_path: 
                 return cache_path
@@ -414,7 +444,11 @@ class ArtworkService:
         cache_path = self.settings.PLAYLIST_ARTWORK_DIR / f'{playlist_id}.jpg'
         if cache_path.exists(): 
             return cache_path
-        return self.settings.PLAYLIST_ARTWORK_DIR / 'default.jpg'
+        default_img = self.settings.PLAYLIST_ARTWORK_DIR / 'default.jpg'
+        if default_img.exists(): 
+            # no need to save to cache
+            return default_img
+        return None
     
     async def save_uploaded_playlist_image(self, playlist_id: int, image_file) -> Path | None:
         '''save uploaded playlist image'''
@@ -466,3 +500,10 @@ class ArtworkService:
         except Exception as e: 
             logger.error(f'Failed to set default {art_type} artwork.')
             raise e
+        
+    # region tools and tests
+    def get_folder_artist_art(self, area: str, char_range: str, artist_name: str, file_stem: str):
+        from tests.db_folder import get_folder_artist_art_file
+        return get_folder_artist_art_file(area, char_range, artist_name, file_stem)
+
+    # endregion tools and tests

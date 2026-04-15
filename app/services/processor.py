@@ -21,6 +21,7 @@ from app.schemas.filething import ParsedMeta
 from app.utils.color import generate_unique_light_color
 from app.utils.pinyin import get_artist_sort_fields
 from app.utils.metadata import extract_cover_art_hash
+from app.services.artwork_service import ArtworkService
 
 class MusicFileProcessor:
     def __init__(self, root_path: Path, db: AsyncSession):
@@ -77,6 +78,14 @@ class MusicFileProcessor:
         # get artist from database
         result = await self.db.execute(select(Artist).where(Artist.name == name))
         artist = result.scalar_one_or_none()
+        if artist.mb_artistid != mbid and mbid is not None: 
+            # if mbid is different and not None, 
+            # update it in database, 
+            # this may happen when the artist is created by file 
+            # with missing mbid at first, 
+            # then updated by another file with mbid later.
+            artist.mb_artistid = mbid
+            await self.db.flush()
         if artist: 
             self.artist_cache[name] = artist
             return artist
@@ -346,15 +355,19 @@ class MusicFileProcessor:
         # 5. comput cover art hash
         cover_art_hash = extract_cover_art_hash(Path(meta.path))
         # 6. create/update Track
+        rel_path = str(Path(meta.path).relative_to(self.root_path))
         if is_incremental_scan:
             # for incremental scan, only update existed track, won't create new track
             # if track not exist, added it to pending_tracks, and commit to database at the end of scan, avoid db deadlock at concurrency scenario
-            result = await self.db.execute(select(Track).where(Track.path == str(Path(meta.path).resolve())))
+            result = await self.db.execute(select(Track).where(Track.path == rel_path))
             track = result.scalar_one_or_none()
             if track:
+                if cover_art_hash != track.cover_art_hash:
+                    service = ArtworkService(self.db)
+                    service.invalidate_artwork_cache(track.id, 'track')
                 await self.update_track(track, meta, cover_art_hash, folder, album, artists, genres)
                 return True
-        rel_path = str(Path(meta.path).relative_to(self.root_path))
+        
         self.pending_tracks.append({
             'title': meta.title,
             'duration': meta.duration,
@@ -406,17 +419,20 @@ class MusicFileProcessor:
             await self.db.commit()
 
             # update success count and progress
-            system_state.scan_progress['success'] += len(self.pending_tracks)
+            if system_state.is_scanning:
+                system_state.scan_progress['success'] += len(self.pending_tracks)
             logger.info(f'✅Committed {len(self.pending_tracks)} tracks successfully.')
         
         except SQLAlchemyError as e:
             await self.db.rollback()
             logger.error(f'❌Database batch commit failed: {str(e)}')
-            system_state.scan_progress['failed'] += len(self.pending_tracks)
+            if system_state.is_scanning: 
+                system_state.scan_progress['failed'] += len(self.pending_tracks)
         except Exception as e:
             await self.db.rollback()
             logger.error(f'❌Failed to commit pending tracks: {e}')
-            system_state.scan_progress['failed'] += len(self.pending_tracks)
+            if system_state.is_scanning:
+                system_state.scan_progress['failed'] += len(self.pending_tracks)
         finally:
             self.pending_tracks.clear()
             self.temp_track_artists_map.clear()

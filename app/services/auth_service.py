@@ -10,7 +10,7 @@
 
 
 import secrets
-from jose import jwt, JWTError
+from jose import jwt, JWTError, ExpiredSignatureError
 from passlib.context import CryptContext
 from sqlalchemy import select, update
 from datetime import datetime, timedelta, timezone
@@ -103,40 +103,43 @@ class AuthService:
             jti: str = payload.get('jti')
 
             if user_id is None or client_type is None:
-                raise JWTError('Invalid token')
+                raise JWTError('Invalid access token')
             result = await self.db.execute(select(UserToken).where(
                 UserToken.access_token_jti == jti,
                 UserToken.is_revoked == True,
             ))
             revoked = result.first()
             if revoked:
-                raise JWTError('Token revoked')
+                raise JWTError('Access token revoked')
             return {
                 'user_id': int(user_id),
                 'client_type': client_type,
                 'jti': jti
             }
+        except ExpiredSignatureError: 
+            raise JWTError('Access token expired')
         except JWTError:
-            return None
+            raise JWTError('Invalid access token')
 
     async def verify_refresh_token(self, client_type: ClientType, refresh_token: str) -> UserToken | None:
         '''verify refresh token(db query and hash compare)'''
         # 1. query all valid refresh tokens of certain client type
-        result = await self.db.execute(select(UserToken).where(
-            UserToken.client_type == client_type,
-            UserToken.is_revoked == False,
-            UserToken.expires_at > datetime.now(timezone.utc),
-        ))
-        tokens = result.scalars().all()
-        # 2. compare refresh token hash
-        for token_rec in tokens:
-            if pwd_context.verify(refresh_token, token_rec.refresh_token_hash):
-                # 3. update last used time if valid
-                token_rec.last_used_at = datetime.now(timezone.utc)
-                await self.db.commit()
-                return token_rec
-            
-        return None
+        try:
+            result = await self.db.execute(select(UserToken).where(
+                UserToken.client_type == client_type,
+                UserToken.is_revoked == False,
+                UserToken.expires_at > datetime.now(timezone.utc),
+            ))
+            tokens = result.scalars().all()
+            # 2. compare refresh token hash
+            for token_rec in tokens:
+                if pwd_context.verify(refresh_token, token_rec.refresh_token_hash):
+                    # 3. update last used time if valid
+                    token_rec.last_used_at = datetime.now(timezone.utc)
+                    await self.db.commit()
+                    return token_rec
+        except Exception:
+            return None
     
     # ========= token rotation ==========
     async def refresh_with_rotation(self, client_type: ClientType, old_refresh_token: str, device_id: str | None = None) -> tuple[str, str]:

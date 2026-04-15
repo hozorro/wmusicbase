@@ -67,6 +67,7 @@ async def get_current_user(
     client_type: ClientType = Depends(get_client_type),
     service: AuthService = Depends(AuthService)
 ) -> CurrentUser:
+    global _USER_CACHE
     if not token:
         return credentials_exception
     
@@ -95,7 +96,7 @@ async def get_current_user(
         return CurrentUser(id=user.id, is_admin=user.is_admin, username=user.username)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f'Failed to verify token: {str(e)}'
         )
 async def require_login(request: Request, current_user: CurrentUser = Depends(get_current_user)) -> None:

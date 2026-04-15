@@ -213,7 +213,7 @@ def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
             raise Exception('Update metadata failed')
     else:
         raise FileNotFoundError
-def easy_metadata(file_path: Path) -> dict[str, Any] | None:
+def easy_metadata(file_path: Path | str) -> dict[str, Any] | None:
     '''
     extract metadata from audio file, without encoding transform
     '''

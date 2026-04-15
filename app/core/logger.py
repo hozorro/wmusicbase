@@ -52,23 +52,12 @@ LOGGING_CONFIG = {
             'level': 'DEBUG' if settings.DEBUG else 'INFO',
             'formatter': 'standard',
             'stream': 'ext://sys.stdout'
-        },
-        'stdout': {
-            'class': 'logging.StreamHandler',
-            'level': 'DEBUG',
-            'formatter': 'standard',
-            'stream': 'ext://sys.stdout'
         }
     },
     'loggers': {
         'app': {
             'handlers': ['console', 'file', 'error_file'] if settings.DEBUG else ['file', 'error_file'],
             'level': 'DEBUG' if settings.DEBUG else 'INFO',
-            'propagate': False
-        },
-        '': {
-            'level': 'DEBUG' if settings.DEBUG else 'INFO',
-            'handlers': ['stdout'],
             'propagate': False
         },
         'uvicorn': {'level': 'INFO', 'handlers': ['console'], 'propagate': False},
@@ -80,15 +69,47 @@ LOGGING_CONFIG = {
     }
 }
 
-def init_logging():
-    logging.config.dictConfig(LOGGING_CONFIG)
-    # logging the initial logs
+_LOGGING_INITIALIZED = False
+
+def is_logging_initialized() -> bool:
     root_looger = logging.getLogger()
-    root_looger.info(f'Logging initialized at {LOG_DIR}')
-    root_looger.info(f'Debug mode: {settings.DEBUG}')
+    has_handlers = len(root_looger.handlers) > 0
+
+    global _LOGGING_INITIALIZED
+
+    return _LOGGING_INITIALIZED or has_handlers
+
+def init_logging(force: bool = False):
+    global _LOGGING_INITIALIZED
+
+    if is_logging_initialized() and not force:
+        logging.getLogger().info('Logging already initialized, skipping...')
+        return
+    
+    try:
+        logging.config.dictConfig(LOGGING_CONFIG)
+        _LOGGING_INITIALIZED = True
+        # logging the initial logs
+        root_looger = logging.getLogger()
+        root_looger.info(f'Logging initialized at {LOG_DIR}')
+        root_looger.info(f'Debug mode: {settings.DEBUG}')
+        root_looger.info(f'Log file: {LOG_DIR / "app.log"}')
+    except Exception as e:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S',
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler(LOG_DIR / 'fallback.log')
+            ]
+        )
+        logging.getLogger(__name__).error(f'Failed to initialize logging: {e}')
 
 def get_logger(name: str = __name__) -> logging.Logger:
     '''get logger(default: __name__ of module)'''
+    if not is_logging_initialized():
+        init_logging()
     return logging.getLogger(name)
 
 logger = get_logger()

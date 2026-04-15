@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     @property
     def TMP_ARTWORK_DIR(self) -> Path:
         '''tmp artwork dir'''
-        return self.ARTWORK_DIR / 'tmp'
+        return self.ARTWORK_DIR / 'tmps'
     
     @field_validator('MEDIA_ROOT', 'LOG_DIR', mode='before')
     @classmethod

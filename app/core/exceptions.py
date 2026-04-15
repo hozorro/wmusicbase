@@ -29,6 +29,7 @@ class BusinessException(HTTPException):
     10404: resource not found
     10405: resource already exists
     10406: resource not allowed
+    10500: operation failed
     to be continued
     '''
     def __init__(self, code: int, msg: str, detail: str | None = None):

@@ -23,8 +23,9 @@ SCAN_TASK_COUNT = 50
 COMMIT_TASK_COUNT = 100
 
 class Scanner:
-    def __init__(self, root_path: Path):
+    def __init__(self, root_path: Path, is_incremental: bool):
         self.root_path = root_path
+        self.is_incremental = is_incremental
         self.queue = asyncio.Queue(maxsize=1000)
         self.batch_size = COMMIT_TASK_COUNT    # db commit batch size
 
@@ -120,7 +121,7 @@ class Scanner:
                     continue
                 
                 try:
-                    await processor.process_single_file(meta)
+                    await processor.process_single_file(meta, self.is_incremental)
                     # check if batch size reached, commit to db
                     if len(processor.pending_tracks) >= self.batch_size:
                         # try-except handled db errors in commit_pending_tracks, if error occurs, log and continue processing next files
@@ -138,5 +139,11 @@ class Scanner:
             self.producer(), 
             self.consumer()
         )
-        system_state.is_scanning = False
+        if system_state.scan_progress:
+            result = f'{system_state.scan_progress['total']} scanned, \
+                {system_state.scan_progress['processed']} processed, \
+                {system_state.scan_progress['success']} success, \
+                {system_state.scan_progress['failed']} failed.'
+            logger.info(result)
+        system_state.reset_scan_state()
         logger.info("Scan completed.")

@@ -21,7 +21,7 @@ from app.models import Track, User
 from app.utils.metadata import parse_metadata
 from app.utils.pinyin import get_artist_sort_fields
 from app.utils.audiofile import AudioMeta
-from app.services.processor import MusicFileProcessor
+# from app.services.processor import MusicFileProcessor
 
 # def is_chinese(text: str) -> bool:
 #     '''check if text contains chinese character'''
@@ -199,14 +199,14 @@ class ArchiveService:
                 continue
 
             # 6. triggle music file processor(archive to db)
-            try:
-                processor = MusicFileProcessor(self.settings.MUSIC_LIBRARY_PATH, self.db)
-                await processor.process_single_file(target_path)
-                await self.db.commit()
-            except Exception as e:
-                await self.db.rollback()
-                errors.append(f'Failed to process {target_path}: {e}')
-                continue
+            # try:
+            #     processor = MusicFileProcessor(self.settings.MUSIC_LIBRARY_PATH, self.db)
+            #     await processor.process_single_file(target_path)
+            #     await self.db.commit()
+            # except Exception as e:
+            #     await self.db.rollback()
+            #     errors.append(f'Failed to process {target_path}: {e}')
+            #     continue
         # 7. delete session directory if empty
         if len(list(songs_dir.iterdir())) == 0:
             shutil.rmtree(str(songs_dir))

@@ -17,10 +17,8 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.exception_handlers import EXCEPTION_HANDLERS
 from app.core.middleware import ScanMiddleware
+from app.background.watcher_manager import watcher
 from app.api.v1 import api_router
-# from sqlalchemy import text
-# from app.background.watcher import start_watcher, stop_watcher
-# from app.services.scanner import scan_music_library
 from app.core.logger import init_logging, logger
 
 #========== Log configuration =======
@@ -32,28 +30,13 @@ async def lifespan(app: FastAPI):
     logger.info("🚀Starting application...")
     logger.info("✅Server is ready to serve requests.")
 
-    #### Optitional：Start scanning when first run(only when tracks table is empty)
-    # async with engine.connect() as conn:
-    #     result = await conn.execute(text("SELECT 1 FROM tracks LIMIT 1"))
-    #     has_tracks = result.fetchone()
-
-    # if not has_tracks:
-    #     logger.info("🔍No Tracks found, Start initial scan...")
-    #     async with engine.begin() as conn:
-    #         await conn.run_sync(Base.metadata.create_all) # ensure tables exist
-    #     await scan_music_library(settings.MUSIC_LIBRARY_PATH)
-    #     logger.info("✅Initial scan completed.")
-    
-    #### Start watcher
-    # start_watcher()
-    # logger.info("👀File watcher started.")
-
     yield
 
     logger.info("🛑Shutting down...")
-    ### Stop watcher
-    # await stop_watcher()
-    # logger.info("🛑File watcher stopped.")
+    ## Stop watcher
+    if watcher.is_running(): 
+        watcher.stop()
+
     await engine.dispose()
     logger.info("🛑Database connection closed.")
     logger.info("👋Application shutdown complete, Goodbye!")

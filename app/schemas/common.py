@@ -52,19 +52,23 @@ class TimeListResponse(RootModel):
 
 # music entity base schemas, avoid circular imports
 #==== Album ====
-class AlbumBase(BaseModel):
+class AlbumPrimary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     title: str
+
+class AlbumBase(AlbumPrimary):
     cover_art_hash: str | None = None
 
 #==== Artist ====
-class ArtistBase(BaseModel):
+class ArtistPrimary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
+
+class ArtistBase(ArtistPrimary):
     cover_art_hash: str | None = None
 
 class ArtistBrief(ArtistBase):
@@ -91,19 +95,24 @@ class GenreBase(BaseModel):
     color: str
 
 #==== Playlist ====
-class PlaylistBase(BaseModel):
+class PlaylistPrimary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     title: str
     cover_art_hash: str | None = None
 
+class PlaylistBase(PlaylistPrimary):
+    cover_art_hash: str | None = None
+
 #==== Track ====
-class TrackBase(BaseModel):
+class TrackPrimary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     title: str
+
+class TrackBase(TrackPrimary):
     cover_art_hash: str | None = None
 
 class TrackBrief(TrackBase):

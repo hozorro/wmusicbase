@@ -9,8 +9,7 @@
 '''
 
 
-import json, gc
-from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends, Request, Response
+from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends, Response
 from app.services.file_service import FileService, ArchiveService
 from app.services.fetchcoverart import get_cover_art, cover_cache
 from app.core.deps import SettingsDep, ADMIN_DEPS

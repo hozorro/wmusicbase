@@ -11,7 +11,7 @@
 
 from datetime import datetime
 from pydantic import BaseModel, RootModel, model_validator, Field
-from .common import FolderBase, ArtistBase, AlbumBase, TrackBase, GenreBase, PlaylistBase
+from .common import FolderBase, ArtistPrimary, AlbumPrimary, TrackPrimary, GenreBase, PlaylistPrimary
 from typing import Any
 
 class TransferRequest(BaseModel):
@@ -19,13 +19,13 @@ class TransferRequest(BaseModel):
     page_num: int = Field(1, description='Page number, as the transfer batch numbe')
     page_size: int = Field(100, description='Page size, as the transfer batch size')
 
-class TransferAlbum(AlbumBase):
-    album_artist: ArtistBase
-    artists: list[ArtistBase]
+class TransferAlbum(AlbumPrimary):
+    album_artist: ArtistPrimary
+    artists: list[ArtistPrimary]
 
     @model_validator(mode='before')
     @classmethod
-    def artists(cls, data: Any) -> list[ArtistBase]:
+    def artists(cls, data: Any) -> list[ArtistPrimary]:
         artists_dict = {}
         if hasattr(data, 'tracks'):
             for track in data.tracks:
@@ -40,7 +40,7 @@ class TransferAlbum(AlbumBase):
             data['artists'] = list(artists_dict.values())
         return data
 
-class TransferArtist(ArtistBase):
+class TransferArtist(ArtistPrimary):
     pinyin_initial: str
     track_count: int
 
@@ -50,10 +50,10 @@ class TransferFolder(FolderBase):
 class TransferGenre(GenreBase):
     info: dict | None
 
-class TransferTrack(TrackBase):
+class TransferTrack(TrackPrimary):
     year: int | None
-    album: AlbumBase
-    artists: list[ArtistBase]
+    album: AlbumPrimary
+    artists: list[ArtistPrimary]
     duration: float | None
     genre_ids: list[int] | None
     folder_id: int
@@ -148,7 +148,7 @@ class UploadPlaylistsResponse(BaseModel):
     created: int
     updated: int
 
-class DownloadPlaylist(PlaylistBase):
+class DownloadPlaylist(PlaylistPrimary):
     comment: str | None
     created_at: datetime
     updated_at: datetime

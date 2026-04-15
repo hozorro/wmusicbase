@@ -118,7 +118,7 @@ class UpdateVerionList(BaseModel):
 
 class UpdateMetaTags(MetaInfo):    # multi tags
     id: str
-    use_matched_cover: bool | None
+    use_matched_cover: bool | None = False
 
 class UpdateMetaTagsList(BaseModel):
     batch_count: int
@@ -136,6 +136,9 @@ class CreateArchive(BaseModel):
 class CreateFingerprint(BaseModel):
     filename: str
     session_id: str
+
+class ScanOptions(BaseModel):
+    is_incremental: bool
 
 # responses
 class FileInfoListResponse(RootModel):
