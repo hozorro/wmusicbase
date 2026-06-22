@@ -70,21 +70,6 @@ class TransferTrack(TrackPrimary):
                 data['genre_ids'] = [genre['id'] for genre in data['genres']]
         return data
 
-class TransferAlbumListResponse(RootModel):
-    root: list[TransferAlbum]
-
-class TransferArtistListResponse(RootModel):
-    root: list[TransferArtist]
-
-class TransferFolderListResponse(RootModel):
-    root: list[TransferFolder]
-
-class TransferGenreListResponse(RootModel):
-    root: list[TransferGenre]
-
-class TransferTrackListResponse(RootModel):
-    root: list[TransferTrack]
-
 # region playback models
 # region playback base models
 class TransferHits(BaseModel):
@@ -165,8 +150,6 @@ class DownloadPlaylist(PlaylistPrimary):
                 data['track_ids'] = [track['track_id'] for track in data['tracks']]
         return data
     
-class DownloadPlaylistListsResponse(RootModel):
-    root: list[DownloadPlaylist]
 # endregion
 
 # endregion

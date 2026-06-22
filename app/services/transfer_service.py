@@ -15,7 +15,7 @@ from sqlalchemy import select, delete, insert, func, or_, distinct
 from sqlalchemy.orm import selectinload, load_only
 from app.core.deps import DbDep, SettingsDep
 from app.schemas.transfer import TransferHitsList, TransferFav, UploadPlaylists
-from app.models import *
+from app.models import Album, Artist, ArtistFav, Folder, Genre, Playlist, PlaylistHit, PlaylistTrack, SyncMeta, Track, TrackFav, TrackHit
 from app.services.sync import Syncer
 
 class TransferService:
@@ -192,7 +192,7 @@ class TransferService:
         data = set()
         for hit in hits.root:   # should add .root here
             for played_at in hit.played_ats:
-                played_at = hit.played_ats.replace(tzinfo=timezone.utc) if played_at.tzinfo is None else played_at
+                played_at = played_at.replace(tzinfo=timezone.utc) if played_at.tzinfo is None else played_at
                 data.add((hit.id, played_at))
 
         stmt = select(TrackHit.track_id, TrackHit.played_at).where(
@@ -339,11 +339,11 @@ class TransferService:
         existed = set()
         for hit in hits.root:
             for played_at in hit.played_ats:
-                played_at = hit.played_ats.replace(tzinfo=timezone.utc) if played_at.tzinfo is None else played_at
-                existed.add((hit.playlist_id, played_at))
+                played_at = played_at.replace(tzinfo=timezone.utc) if played_at.tzinfo is None else played_at
+                existed.add((hit.id, played_at))
         stmt = select(PlaylistHit.playlist_id, PlaylistHit.played_at).where(
             PlaylistHit.user_id == self.current_user_id,
-            PlaylistHit.playlist_id.in_([hit.id for hit in hits]),
+            PlaylistHit.playlist_id.in_([hit.id for hit in hits.root]),
         )
         result = await self.db.execute(stmt)
         for playlist_id, played_at in result.all():
@@ -397,7 +397,7 @@ class TransferService:
             # 1. update or insert playlists
             comment = pl_data.comment if hasattr(pl_data, 'comment') else ''
             is_deleted = pl_data.is_deleted if hasattr(pl_data, 'is_deleted') else False
-            if not playlist.id.startswith('tmp_'):
+            if pl_data.id is not None:
                 # update existing playlist
                 playlist_id = pl_data.id
                 playlist = await self.db.get(Playlist, playlist_id)
@@ -424,7 +424,7 @@ class TransferService:
             await self.db.execute(
                 delete(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist.id)
             )
-            if not is_deleted and hasattr(pl_data, 'tracks_ids'):
+            if not is_deleted and hasattr(pl_data, 'track_ids'):
                 track_records = [
                     {
                         'playlist_id': playlist.id,
@@ -455,46 +455,3 @@ class TransferService:
         playlists = result.scalars().all()
         return playlists
 
-        # 1. get current user's all playlists where is_deleted = False
-        # result_playlists = await self.db.execute(
-        #     select(Playlist).where(
-        #         Playlist.user_id == self.current_user_id,
-        #         Playlist.is_deleted == False
-        #     )
-        #     .order_by(Playlist.created_at).offset((page_num - 1) * page_size).limit(page_size)
-        # )
-        # playlists = result_playlists.scalars().all()
-
-        # # 2. get playlist tracks
-        # playlist_ids = [playlist.id for playlist in playlists]
-        # track_map = {}
-        # if playlist_ids:
-        #     result_tracks = await self.db.execute(
-        #         select(PlaylistTrack)
-        #         .options(selectinload(Playlist.play_hits).load_only(PlaylistHit.played_at))
-        #         .where(PlaylistTrack.playlist_id.in_(playlist_ids))
-        #         .order_by(PlaylistTrack.position)
-        #     )
-        #     tracks = result_tracks.scalars().all()
-        #     for pt in tracks:
-        #         if pt.playlist_id not in track_map:
-        #             track_map[pt.playlist_id] = []
-        #             track_map[pt.playlist_id].append({
-        #                 'track_id': pt.track_id,
-        #                 'position': pt.position
-        #             })
-        # # 3. make result
-        # result = []
-        # for p in playlists:
-        #     result.append({
-        #         'id': p.id,
-        #         'title': p.title,
-        #         'comment': p.comment,
-        #         'created_at': p.created_at.isoformat(),
-        #         'updated_at': p.updated_at.isoformat() if p.updated_at else None,
-        #         'is_deleted': p.is_deleted,
-        #         'tracks': track_map.get(p.id, []),
-        #         'hits': [hit.played_at.isoformat() for hit in p.play_hits]
-        #     })
-
-        # return result

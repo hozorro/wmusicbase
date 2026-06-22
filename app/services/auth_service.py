@@ -75,7 +75,7 @@ class AuthService:
         existing = result.scalar_one_or_none()
         if existing:
             existing.refresh_token_hash = token_hash
-            existing.exires_at = expire_at
+            existing.expires_at = expire_at
             existing.is_revoked = False
             existing.last_used_at = datetime.now(timezone.utc)
             access_token_jti = existing.access_token_jti

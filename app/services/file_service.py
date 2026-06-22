@@ -21,11 +21,6 @@ from app.models import Track, User
 from app.utils.metadata import parse_metadata
 from app.utils.pinyin import get_artist_sort_fields
 from app.utils.audiofile import AudioMeta
-# from app.services.processor import MusicFileProcessor
-
-# def is_chinese(text: str) -> bool:
-#     '''check if text contains chinese character'''
-#     return any('\u4e00' <= char <= '\u9fff' for char in text)
 
 class FileService:
     def __init__(self, settings: SettingsDep):

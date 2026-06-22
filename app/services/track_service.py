@@ -51,15 +51,7 @@ class TrackService:
         raw = f'{tid}:{self.current_user_id}'
         token = signer.sign(raw).decode()
         return f'stream/{tid}?token={token}'
-    async def get_audio_file(self, track_id: int) -> str | None:
-        '''get track file path, use for streaming'''
-        result = await self.db.execute(select(Track.path).where(Track.id == track_id, Track.is_deleted == False))
-        track_path = result.scalar_one_or_none()
-        print(track_path)
-        if not track_path:
-            return None
-        abs_path = (self.settings.MUSIC_LIBRARY_PATH / track_path).resolve()
-        return str(abs_path)
+
     async def get_track_info(self, track_id: int) -> Track | None:
         """
         get track info:

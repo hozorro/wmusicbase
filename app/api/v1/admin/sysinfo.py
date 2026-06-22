@@ -21,8 +21,8 @@ from app.core.config import settings, create_required_directories
 from app.core.state import system_state
 from app.models import Track, Album, Artist, Folder, Genre, Playlist, track_artists, TrackHit
 from app.services.sync import Syncer
-from app.schemas.common import ResponseModel, StrResponse, MediaPathList, SuccessMsgModel, TestBase
-from app.schemas.sysinfo import DashboardInfo, ScanInfo
+from app.schemas.common import ResponseModel, SuccessMsgModel, MediaPath
+from app.schemas.sysinfo import DashboardInfo, ScanInfo, ArtistArtRequest, SetArtistArtsRequest, SetArtistArtsResponse, ArtistArt
 
 router = APIRouter()
 
@@ -160,7 +160,7 @@ async def initialize_meta(db: DbDep):
     await syncer.initialize_sync_meta()
     return ResponseModel(code=200, msg='ok')
 
-@router.get('/initdirs', response_model=ResponseModel[MediaPathList])
+@router.get('/initdirs', response_model=ResponseModel[list[MediaPath]])
 async def get_init_dir():
     init_dirs = [
         {
@@ -199,30 +199,25 @@ async def get_init_dir():
             init_dir['path'] = settings.LOG_DIR.relative_to(settings.PROJECT_ROOT)
             
 
-    return ResponseModel(data=MediaPathList.model_validate(init_dirs))
+    return ResponseModel(data=[MediaPath.model_validate(d) for d in init_dirs])
 
 @router.post('/initdirs', response_model=ResponseModel[SuccessMsgModel])
-async def get_init_dir():
+async def create_init_dirs():
     create_required_directories()
     return ResponseModel(data=SuccessMsgModel())
 
-from app.schemas.sysinfo import ArtistArtRequest, ArtistArtResponse, SetArtistArtsRequest, SetArtistArtsResponse
-from tests.db_folder import get_folder_artist_arts, set_folder_artist_art
-@router.post('/artistarts', response_model=ResponseModel[ArtistArtResponse])
+from app.services.artist_art_service import get_folder_artist_arts, set_folder_artist_art
+
+@router.post('/artistarts', response_model=ResponseModel[list[ArtistArt]])
 async def get_artist_arts(option: ArtistArtRequest):
     result = get_folder_artist_arts(option.area, option.char_range)
-    return ResponseModel(data=ArtistArtResponse(result))
+    return ResponseModel(data=[ArtistArt.model_validate(r) for r in result])
+
 @router.post('/setartistarts', response_model=ResponseModel[SetArtistArtsResponse])
 async def set_artist_arts(option: SetArtistArtsRequest):
     result = set_folder_artist_art(option.area, option.char_range, option.covers)
     return ResponseModel(data=SetArtistArtsResponse.model_validate(result))
-@router.post('/test', response_model=ResponseModel[StrResponse])
-async def test(input: TestBase):
-    return ResponseModel(data=StrResponse(input.text))
-@router.post('/backops', response_model=ResponseModel[StrResponse])
-async def backops():
-    return ResponseModel(data=StrResponse('success'))
 
-@router.get('/test', response_model=ResponseModel[StrResponse])
-async def test():
-    return ResponseModel(data=StrResponse('hello'))
+@router.post('/backops', response_model=ResponseModel[str])
+async def backops():
+    return ResponseModel(data='success')

@@ -501,9 +501,9 @@ class ArtworkService:
             logger.error(f'Failed to set default {art_type} artwork.')
             raise e
         
-    # region tools and tests
+    # region tools
     def get_folder_artist_art(self, area: str, char_range: str, artist_name: str, file_stem: str):
-        from tests.db_folder import get_folder_artist_art_file
+        from app.services.artist_art_service import get_folder_artist_art_file
         return get_folder_artist_art_file(area, char_range, artist_name, file_stem)
 
-    # endregion tools and tests
+    # endregion tools

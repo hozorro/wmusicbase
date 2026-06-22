@@ -18,7 +18,7 @@ from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.schemas.filething import PlaylistJsonListResponse
 from app.schemas.playback import ImportJsonUpload, PlaylistJsonUpload, JsonImportResponse
-from app.schemas.user import UserListResponse
+from app.schemas.user import UserResponse
 from app.services.playback_service import PlaylistService, PlayDataService
 from app.services.user_service import UserService
 
@@ -63,10 +63,10 @@ async def delete_playlist_json(filename: str, settings: SettingsDep):
     json_file.unlink()
     return ResponseModel(data=SuccessMsgModel(info='successfully deleted'))
 
-@router.get('/getuserlist', response_model=ResponseModel[UserListResponse])
+@router.get('/getuserlist', response_model=ResponseModel[list[UserResponse]])
 async def get_user_list(service: UserService = Depends(UserService)):
     users = await service.get_user_list()
-    return ResponseModel(data=UserListResponse(users))
+    return ResponseModel(data=[UserResponse.model_validate(u) for u in users])
 
 @router.get('/exportuserplaylistdata', response_class=StreamingResponse)
 async def export_user_playlist_data(user_id: int, service: PlayDataService = Depends(PlayDataService)):

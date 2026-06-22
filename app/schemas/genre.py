@@ -9,11 +9,8 @@
 '''
 
 
-from pydantic import BaseModel, RootModel, Field
+from pydantic import BaseModel
 from app.schemas.common import GenreBase, TrackBrief
-
-class GenresResponse(RootModel):
-    root: list[GenreBase] = Field(..., title='Genres')
 
 class GenreTracksResponse(BaseModel):
     total: int

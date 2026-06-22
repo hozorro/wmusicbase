@@ -10,7 +10,7 @@
 
 
 from fastapi import UploadFile, Form, File
-from pydantic import BaseModel,RootModel, Field
+from pydantic import BaseModel, Field
 from .common import ArtistBase, ArtistBrief, AlbumBase, TrackBrief
 
 class ArtistArtCreate(BaseModel):
@@ -27,16 +27,6 @@ async def artist_art_upload_from_form(
 class ArtistArtUpdate(BaseModel):
     id: int
     art_type: str
-
-# response models
-class ArtistsResponse(RootModel):
-    root: list[ArtistBase] = Field(..., description='Artists array')
-    
-class StartCharsResponse(RootModel):
-    root: list[tuple[str, bool]]
-
-class ArtistBriefListResponse(RootModel):
-    root: list[ArtistBrief]
 
 class ArtistResponse(ArtistBase):
     main_albums: list[AlbumBase]

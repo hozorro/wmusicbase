@@ -10,9 +10,8 @@
 
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.schemas.common import ResponseModel, SuccessMsgModel
+from app.schemas.common import ResponseModel, SuccessMsgModel, PlaylistBase
 from app.schemas.playback import (
-    PlaylistsResponse, 
     PlaylistResponse, 
     PlaylistWithTracksResponse,
     PlaylistCreate, 
@@ -26,15 +25,15 @@ from app.services.artwork_service import ArtworkService
 
 router = APIRouter()
 
-@router.get('/topplaylists', response_model=ResponseModel[PlaylistsResponse])
+@router.get('/topplaylists', response_model=ResponseModel[list[PlaylistBase]])
 async def get_top_playlists(service: PlaylistService = Depends(PlaylistService)):
     playlists = await service.get_top_playlists()
-    return ResponseModel(data=PlaylistsResponse(playlists))
+    return ResponseModel(data=[PlaylistBase.model_validate(p) for p in playlists])
 
-@router.get('/playlists', response_model=ResponseModel[PlaylistsResponse])
+@router.get('/playlists', response_model=ResponseModel[list[PlaylistBase]])
 async def get_playlists(service: PlaylistService = Depends(PlaylistService)):
     playlists = await service.get_user_playlists()
-    return ResponseModel(data=PlaylistsResponse(playlists))
+    return ResponseModel(data=[PlaylistBase.model_validate(p) for p in playlists])
 
 @router.get('/{playlist_id}', response_model=ResponseModel[PlaylistWithTracksResponse])
 async def get_playlist(playlist_id: int, service: PlaylistService = Depends(PlaylistService)):

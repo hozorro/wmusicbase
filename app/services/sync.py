@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
-from app.models import *
+from app.models import Album, Artist, Folder, Genre, Track, User, Playlist, TrackHit, PlaylistHit, TrackFav, ArtistFav, SyncMeta
 
 class Syncer:
     def __init__(self, db: AsyncSession, settings: Settings):

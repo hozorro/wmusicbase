@@ -163,6 +163,7 @@ cython_debug/
 media/
 fpcalc*
 libchromaprint.*
+inspect_result.db
 
 # test stuff
 tests/

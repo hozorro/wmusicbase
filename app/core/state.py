@@ -11,14 +11,6 @@
 
 from dataclasses import dataclass
 
-init_progress = {
-    'total': 0,
-    'processed': 0,
-    'success': 0,
-    'failed': 0,
-    'current_file': ''
-}
-
 @dataclass
 class SystemState:
     is_watcher_running: bool = False
