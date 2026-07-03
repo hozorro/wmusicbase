@@ -44,14 +44,26 @@ class BaseCheck(ABC):
 # ==================== Registry ====================
 
 _check_registry: list[type[BaseCheck]] = []
+_after_check_registry: list[type[BaseCheck]] = []
 
 
 def register_check(cls: type[BaseCheck]) -> type[BaseCheck]:
-    '''decorator: register a check class'''
+    '''decorator: register a check class (runs during scan)'''
     _check_registry.append(cls)
+    return cls
+
+
+def register_after_check(cls: type[BaseCheck]) -> type[BaseCheck]:
+    '''decorator: register an after-check class (runs directly without re-scanning)'''
+    _after_check_registry.append(cls)
     return cls
 
 
 def get_all_checks() -> list[type[BaseCheck]]:
     '''return all registered check classes'''
     return list(_check_registry)
+
+
+def get_all_after_checks() -> list[type[BaseCheck]]:
+    '''return all registered after-check classes'''
+    return list(_after_check_registry)

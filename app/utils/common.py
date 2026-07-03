@@ -43,3 +43,17 @@ def parse_multiple_value(value: str) -> list[str] | None:
     '''parse multiple value, return list'''
     sep = r'[;,，&|/\\]'
     return list(map(lambda x: x.strip(), re.split(sep, value))) if value else None
+
+# Invalid folder name characters: < > : " / \ | ? *
+_INVALID_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*]')
+def sanitize_folder_name(name: str) -> str:
+    '''
+    sanitize folder name by replacing all invalid characters with '_'
+    Windows invalid chars: < > : " / \\ | ? *
+    Also handles trailing dots and spaces
+    '''
+    # replace all invalid characters
+    result = _INVALID_CHARS_PATTERN.sub('_', name)
+    # replace trailing dots and spaces
+    result = re.sub(r'[. ]+$', '_', result)
+    return result

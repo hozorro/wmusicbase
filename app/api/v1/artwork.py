@@ -97,9 +97,3 @@ async def set_default_art(cover: UploadFile, art_type: str = Form(...), service:
         return ResponseModel(data=SuccessMsgModel())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to set default {art_type} art.')
-    
-# region tools and tests
-@router.get('/tool/{cover}', tags=['tools'])
-async def get_folder_artist_cover(cover: str, area: str, char_range: str, name: str, service: ArtworkService = Depends(ArtworkService)):
-    cover_path = service.get_folder_artist_art(area, char_range, name, cover)
-    return FileResponse(cover_path)

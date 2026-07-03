@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from prescan.scanner import InspectScanner
 from prescan.reporter import InspectReporter
 from prescan.models import InspectBase
-from prescan.checks import get_all_checks
+from prescan.checks import get_all_checks, get_all_after_checks
 
 app = typer.Typer(help='Music Library Pre-Scan Inspection Tool')
 
@@ -63,7 +63,7 @@ def report(
     severity: str = typer.Option(None, '--severity', '-s', help='按严重级别过滤: error/warning/info'),
     export: str = typer.Option(None, '--export', help='导出格式: csv'),
     output: Path = typer.Option(None, '--output', '-o', help='导出文件路径'),
-    limit: int = typer.Option(100, '--limit', help='详情显示条数上限'),
+    limit: int = typer.Option(10, '--limit', help='详情显示条数上限'),
 ):
     '''查看/导出检查结果报告'''
     if not db.exists():
@@ -90,7 +90,7 @@ def report(
 
         # export
         if export and export.lower() == 'csv':
-            out_path = output or Path('inspect_issues.csv')
+            out_path = output or Path(r'd:\inspect_issues.csv')
             count = reporter.export_csv(out_path)
             print(f'\n  Exported {count} issues to: {out_path}')
 
@@ -99,10 +99,41 @@ def report(
 def list_checks():
     '''列出所有可用的检查项'''
     checks = get_all_checks()
-    print(f'\n  Available checks ({len(checks)}):\n')
+    after_checks = get_all_after_checks()
+
+    print(f'\n  Scan checks ({len(checks)}):')
     for cls in checks:
         print(f'    {cls.name:35s} {cls.description}')
+
+    print(f'\n  After-checks ({len(after_checks)}):')
+    for cls in after_checks:
+        print(f'    {cls.name:35s} {cls.description}')
     print()
+
+
+@app.command(name='after-report')
+def after_report(
+    library: Path = typer.Option(None, '--library', '-l', help='音乐库目录路径'),
+    db: Path = typer.Option(Path(DEFAULT_DB_NAME), '--db', '-d', help='检查结果数据库路径'),
+    check: str = typer.Option(None, '--check', '-c', help='只显示特定检查项的结果'),
+    export: str = typer.Option(None, '--export', help='导出格式: csv'),
+    output: Path = typer.Option(None, '--output', '-o', help='导出文件路径'),
+):
+    '''直接运行 after-checks (不需要重新扫描音乐库)'''
+    if not db.exists():
+        typer.echo(f'Error: Database not found: {db}', err=True)
+        typer.echo('Run "scan" command first.', err=True)
+        raise typer.Exit(code=1)
+
+    library_path = _resolve_library_path(library)
+    if not library_path.exists():
+        typer.echo(f'Error: Library path does not exist: {library_path}', err=True)
+        raise typer.Exit(code=1)
+
+    engine = create_engine(f'sqlite:///{db}')
+    with Session(engine) as session:
+        reporter = InspectReporter(session, library_path)
+        print(reporter.run_after_checks(check_name=check, export=export, output_path=output))
 
 
 if __name__ == '__main__':

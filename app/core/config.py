@@ -151,6 +151,11 @@ class Settings(BaseSettings):
     # ========== Lyric config ===========
     LYRIC_OUT_BASE_URL:str = Field('http://localhost:28883/api/v1/lyrics/', description='lyric server address base url')
 
+    # ========== AI config ==============
+    AI_API_KEY: str = Field('change-to-your-ai-key', description='AI api key')
+    DASHSCOPE_BASE_URL: str = Field('https://dashscope.aliyuncs.com/api/v1', description='AI api url')
+    AI_MODEL_NAME: str = Field('qwen3.6-flash', description='AI model name')
+
     # ========== Other variables ========
     MAX_UPDATE_META_BATCH_COUNT: int = Field(20, description='max batch count of items to update metadata')
     

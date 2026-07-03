@@ -36,6 +36,8 @@ class InspectScanner:
         self._artist_cache: dict[str, InsArtist] = {}
         self._album_cache: dict[tuple[str, int | None], InsAlbum] = {}
         self._genre_cache: dict[str, InsGenre] = {}
+        # artist folder map: {folder_name: relative_path}, built before scanning
+        self._artist_dir_map: dict[str, str] = {}
 
         # counters
         self._total_files = 0
@@ -52,13 +54,17 @@ class InspectScanner:
         engine = create_inspect_engine(self.db_path)
         InspectBase.metadata.create_all(engine)
 
-        # 2. collect all music files
+        # 2. build artist directory map (scan directory structure)
+        self._build_artist_dir_map()
+        print(f'📁 Found {len(self._artist_dir_map)} artist folders in library')
+
+        # 3. collect all music files
         music_files = self._collect_files()
         self._total_files = len(music_files)
         print(f'🔍 Found {self._total_files} music files')
         print()
 
-        # 3. scan files
+        # 4. scan files
         with Session(engine) as session:
             self._scan_files(session, music_files)
             session.commit()
@@ -66,13 +72,33 @@ class InspectScanner:
             print(f'✅ Scan complete: {self._processed} processed, {self._errors} errors')
             print()
 
-            # 4. run all checks
+            # 5. run all checks
             all_issues = self._run_checks(session)
             session.commit()
 
         print()
         print(f'🏁 Inspection complete: {len(all_issues)} issues found')
         return all_issues
+
+    def _build_artist_dir_map(self):
+        '''
+        scan the library directory structure to build a map of artist folders.
+        directory structure: area/char_range/artist_name/...
+        result: {artist_folder_name: relative_path}
+        '''
+        if not self.library_path.exists():
+            return
+        for area_dir in self.library_path.iterdir():
+            if not area_dir.is_dir():
+                continue
+            for range_dir in area_dir.iterdir():
+                if not range_dir.is_dir():
+                    continue
+                for artist_dir in range_dir.iterdir():
+                    if artist_dir.is_dir():
+                        name = artist_dir.name
+                        rel_path = str(artist_dir.relative_to(self.library_path)).replace('\\', '/')
+                        self._artist_dir_map[name] = rel_path
 
     def _collect_files(self) -> list[Path]:
         '''collect all music files from the library directory'''
@@ -226,14 +252,24 @@ class InspectScanner:
             self._artist_cache[name] = existing
             return existing
 
-        # determine artist dir path and check face.jpg
+        # determine artist dir path: check current dir first, then fallback to library-wide search
         rel = file_path.relative_to(self.library_path)
         parts = rel.parts
-        artist_dir = '/'.join(parts[:3]) if len(parts) >= 3 else ''
-        artist_abs = self.library_path / artist_dir if artist_dir else None
+        artist_dir = ''
         has_face = False
-        if artist_abs and artist_abs.exists():
-            has_face = (artist_abs / 'face.jpg').exists()
+        if len(parts) >= 3:
+            dir_name = parts[2]  # area/char_range/artist_name/...
+            if dir_name == name:
+                # current file is in this artist's own folder
+                artist_dir = '/'.join(parts[:3])
+            else:
+                # featured artist: look up in the pre-built directory map
+                artist_dir = self._artist_dir_map.get(name, '')
+
+            if artist_dir:
+                artist_abs = self.library_path / artist_dir
+                if artist_abs.exists():
+                    has_face = (artist_abs / 'face.jpg').exists()
 
         sort_name, pinyin_initial = get_artist_sort_fields(name)
 

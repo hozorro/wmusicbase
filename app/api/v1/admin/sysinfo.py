@@ -205,19 +205,3 @@ async def get_init_dir():
 async def create_init_dirs():
     create_required_directories()
     return ResponseModel(data=SuccessMsgModel())
-
-from app.services.artist_art_service import get_folder_artist_arts, set_folder_artist_art
-
-@router.post('/artistarts', response_model=ResponseModel[list[ArtistArt]])
-async def get_artist_arts(option: ArtistArtRequest):
-    result = get_folder_artist_arts(option.area, option.char_range)
-    return ResponseModel(data=[ArtistArt.model_validate(r) for r in result])
-
-@router.post('/setartistarts', response_model=ResponseModel[SetArtistArtsResponse])
-async def set_artist_arts(option: SetArtistArtsRequest):
-    result = set_folder_artist_art(option.area, option.char_range, option.covers)
-    return ResponseModel(data=SetArtistArtsResponse.model_validate(result))
-
-@router.post('/backops', response_model=ResponseModel[str])
-async def backops():
-    return ResponseModel(data='success')

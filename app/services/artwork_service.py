@@ -338,7 +338,7 @@ class ArtworkService:
         # (assume that all the track of the album is in the same directory)
         return Path(album.tracks[0].path).parent.name == album.title
 
-    async def get_album_directory(self, album: Album) -> Path | None:
+    def get_album_directory(self, album: Album) -> Path | None:
         '''get album directory'''
         try:
             return Path(album.tracks[0].path).parent
@@ -500,10 +500,3 @@ class ArtworkService:
         except Exception as e: 
             logger.error(f'Failed to set default {art_type} artwork.')
             raise e
-        
-    # region tools
-    def get_folder_artist_art(self, area: str, char_range: str, artist_name: str, file_stem: str):
-        from app.services.artist_art_service import get_folder_artist_art_file
-        return get_folder_artist_art_file(area, char_range, artist_name, file_stem)
-
-    # endregion tools

@@ -11,6 +11,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from prescan.models import InsTrack, InsArtist, InsAlbum, InsGenre, InsIssue
+from prescan.checks import get_all_after_checks
 
 
 # ANSI color codes
@@ -136,3 +137,47 @@ class InspectReporter:
                     issue.entity_id, issue.file_path, issue.message, issue.detail
                 ])
         return len(issues)
+
+    def run_after_checks(self, check_name: str | None = None,
+                         export: str | None = None, output_path: Path | None = None) -> str:
+        '''run after-checks directly without re-scanning'''
+        after_checks = get_all_after_checks()
+        if not after_checks:
+            return '  No after-checks registered.'
+
+        lines = []
+        lines.append('')
+        lines.append(_c('═' * 60, 'bold'))
+        lines.append(_c('  After-Checks Results (Live)', 'bold'))
+        lines.append(_c('═' * 60, 'bold'))
+        lines.append('')
+
+        total_issues = 0
+        for check_cls in after_checks:
+            if check_name and check_cls.name != check_name:
+                continue
+
+            check = check_cls(self.session, self.library_path)
+            issues = check.run()
+            total_issues += len(issues)
+
+            lines.append(f'  {_c(check_cls.name, "bold")}: {check_cls.description}')
+            lines.append(f'    Found {_c(str(len(issues)), "warning")} issues')
+
+            # terminal: only statistics, no detail lines
+            if issues:
+                for issue in issues[:5]:
+                    badge = _c(f'[{issue.severity.upper():>7s}]', issue.severity)
+                    lines.append(f'    {badge} {issue.message}')
+            lines.append('')
+
+            # CSV export
+            if export and export.lower() == 'csv' and hasattr(check, 'export_csv'):
+                out = output_path or Path(f'd:/{check_cls.name}.csv')
+                row_count = check.export_csv(out)
+                lines.append(f'    {_c("Exported", "green")} {row_count} rows -> {out}')
+                lines.append('')
+
+        lines.append(f'  Total after-check issues: {_c(str(total_issues), "bold")}')
+        lines.append(_c('═' * 60, 'bold'))
+        return '\n'.join(lines)

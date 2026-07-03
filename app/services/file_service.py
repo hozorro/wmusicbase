@@ -151,8 +151,13 @@ class ArchiveService:
         _, initial = get_artist_sort_fields(artist_name)
         group = self._get_initial_group(initial)
 
+        from utils.common import sanitize_folder_name
+        artist_name = sanitize_folder_name(artist_name)
+
         base = Path(self.settings.MUSIC_LIBRARY_PATH) / area / group / artist_name
+
         if album_title:
+            album_title = sanitize_folder_name(album_title)
             return base / album_title / track_title
         else:
             return base / track_title
