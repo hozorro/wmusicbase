@@ -9,7 +9,7 @@
 '''
 
 
-import re, aiofiles, hashlib
+import re, aiofiles, hashlib, shutil, time
 from pathlib import Path
 from enum import Enum
 from fastapi import UploadFile
@@ -20,6 +20,7 @@ from app.core.deps import SettingsDep, DbDep
 from app.core.logger import logger
 from app.utils.metadata import extract_embedded_artwork
 from app.utils.image import resize_image
+from app.utils.common import sanitize_folder_name
 
 # cache dir
 COVER_FILENAME_PATTERNS = [ # match with sequence
@@ -181,7 +182,7 @@ class ArtworkService:
                 group_path = lang_path / group
                 if not group_path.exists(): continue
 
-                artist_dir = music_root / lang / group / artist_name
+                artist_dir = music_root / lang / group / sanitize_folder_name(artist_name)
                 if artist_dir.is_dir():
                     return artist_dir
                 
@@ -189,41 +190,171 @@ class ArtworkService:
 
     async def find_artist_image_in_directory(self, artist_name: str, img_cate: str) -> Path | None:
         '''
-        finde artist image in the artist directory
+        find artist image in the artist directory
+        looks for files named {img_cate}_{N}.jpg and returns the one with lowest N
         Args:
             artist_name (str): artist name
             img_cate (str): image type, face or portrait
         Returns:
             Path | None: image path, or None if not found
         '''
+        artist_dir = self.get_artist_directory(artist_name)
+        if not artist_dir:
+            return None
+
+        # pattern: face_1.jpg, face_2.jpg, portrait_1.jpg, etc.
+        pattern = re.compile(rf'^{img_cate}_(\d+)\.(jpg|jpeg|png)$', re.I)
         candidates = []
-        music_root = Path(self.settings.MUSIC_LIBRARY_PATH)
-        for lang in ['Chinese', 'Foreign']:
-            for group in ['A-G', 'H-N', 'O-T', 'U-Z', 'Z_']:
-                artist_dir = music_root / lang / group / artist_name
-                if not artist_dir.is_dir(): continue
-                for entry in artist_dir.iterdir():
-                    if entry.is_file() and entry.suffix.lower() in COVER_EXTENSIONS:
-                        candidates.append(entry)
 
-        best_match = None
-        best_weight = len(COVER_FILENAME_PATTERNS)
+        for entry in artist_dir.iterdir():
+            if entry.is_file():
+                match = pattern.match(entry.name)
+                if match:
+                    num = int(match.group(1))
+                    candidates.append((num, entry))
 
-        for c in candidates:
-            lower_name = c.stem.lower()
-            if lower_name.startswith(img_cate):
-                return c
-            
-            for index, pattern in enumerate(COVER_FILENAME_PATTERNS):
-                if index < best_weight:
-                    if pattern.match(lower_name):
-                        best_match = c
-                        best_weight = index
-                        break
-                else:
-                    break
-                
-        return best_match if best_match else None
+        if not candidates:
+            return None
+
+        # sort by number and return the lowest
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1]
+
+    async def get_artist_art_candidates(self, artist_id: int, art_type: str) -> list[str]:
+        '''
+        get candidate artwork filenames for an artist
+        returns list of filenames matching {art_type}_N.jpg pattern, naturally sorted
+        '''
+        artist = await self.db.get(Artist, artist_id)
+        if not artist:
+            raise ValueError(f'Artist {artist_id} not found')
+        artist_dir = self.get_artist_directory(artist.name)
+        if not artist_dir:
+            return []
+        pattern = re.compile(rf'^{art_type}_(\d+)\.(jpg|jpeg|png)$', re.I)
+        candidates = []
+        for entry in artist_dir.iterdir():
+            if entry.is_file():
+                match = pattern.match(entry.name)
+                if match:
+                    candidates.append((int(match.group(1)), entry.name))
+        candidates.sort(key=lambda x: x[0])
+        return [name for _, name in candidates]
+
+    def _find_lowest_available_number(self, existing_numbers: list[int]) -> int:
+        '''find the lowest positive integer not in the list'''
+        s = set(existing_numbers)
+        n = 1
+        while n in s:
+            n += 1
+        return n
+
+    async def upload_artist_art_candidate(self, artist_id: int, art_type: str, content: bytes) -> str:
+        '''
+        upload a candidate artwork image to the artist directory
+        finds the lowest available number gap and saves with that number
+        returns the new filename
+        '''
+        artist = await self.db.get(Artist, artist_id)
+        if not artist:
+            raise ValueError(f'Artist {artist_id} not found')
+        artist_dir = self.get_artist_directory(artist.name)
+        if not artist_dir:
+            raise ValueError(f'Artist directory not found for {artist.name}')
+        # find existing numbers
+        pattern = re.compile(rf'^{art_type}_(\d+)\.(jpg|jpeg|png)$', re.I)
+        existing_numbers = []
+        for entry in artist_dir.iterdir():
+            if entry.is_file():
+                match = pattern.match(entry.name)
+                if match:
+                    existing_numbers.append(int(match.group(1)))
+        # find lowest gap
+        new_num = self._find_lowest_available_number(existing_numbers)
+        # determine extension from content (default to jpg)
+        ext = 'jpg'
+        filename = f'{art_type}_{new_num}.{ext}'
+        file_path = artist_dir / filename
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(content)
+        return filename
+
+    async def set_artist_art_from_candidate(self, artist_id: int, art_type: str, filename: str) -> str:
+        '''
+        set an artist's official artwork from a candidate file
+        swaps the selected candidate to position _1 (renumbering the old _1 if needed)
+        updates the cache and the corresponding *_art_hash
+        returns the artwork URL
+        '''
+        artist = await self.db.get(Artist, artist_id)
+        if not artist:
+            raise ValueError(f'Artist {artist_id} not found')
+        artist_dir = self.get_artist_directory(artist.name)
+        if not artist_dir:
+            raise ValueError(f'Artist directory not found for {artist.name}')
+        # validate filename format
+        pattern = re.compile(rf'^{art_type}_(\d+)\.(jpg|jpeg|png)$', re.I)
+        match = pattern.match(filename)
+        if not match:
+            raise ValueError(f'Invalid filename format: {filename}')
+        selected_num = int(match.group(1))
+        selected_path = artist_dir / filename
+        if not selected_path.exists():
+            raise ValueError(f'Candidate file not found: {filename}')
+        face_path = artist_dir / f'{art_type}_1.jpg'
+        if face_path.exists() and selected_num != 1:
+            # need to move current _1 out of the way
+            existing_numbers = []
+            for entry in artist_dir.iterdir():
+                if entry.is_file():
+                    m = pattern.match(entry.name)
+                    if m:
+                        existing_numbers.append(int(m.group(1)))
+            # remove selected_num from the list (it will be renamed to _1)
+            existing_numbers.remove(selected_num)
+            # find lowest gap for the displaced _1
+            gap_num = self._find_lowest_available_number(existing_numbers)
+            # rename current _1 to the gap position
+            shutil.move(str(face_path), str(artist_dir / f'{art_type}_{gap_num}.jpg'))
+        # rename selected candidate to _1 (skip if already _1)
+        if selected_num != 1:
+            shutil.move(str(selected_path), str(face_path))
+        # invalidate old cache
+        self.invalidate_artwork_cache(artist_id, 'artist', art_type)
+        # save new _1 to cache and compute hash
+        cache_path = await self._save_artwork_to_cache(artist_id, 'artist', face_path, art_type)
+        # compute hash and update the corresponding field
+        async with aiofiles.open(face_path, 'rb') as f:
+            content = await f.read()
+        cover_art_hash = hashlib.sha1(content).hexdigest()
+        if art_type == 'face':
+            artist.face_art_hash = cover_art_hash
+        else:
+            artist.portrait_art_hash = cover_art_hash
+        await self.db.commit()
+        return f'/api/v1/artwork/artist/{artist_id}?img_cate={art_type}&t={int(time.time())}'
+
+    async def get_artist_candidate_file(self, artist_id: int, filename: str) -> Path | None:
+        '''
+        get a candidate artwork file path for an artist (with security validation)
+        returns the file path if valid, None otherwise
+        '''
+        # validate filename to prevent path traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return None
+        # validate file extension
+        if not Path(filename).suffix.lower() in ['.jpg', '.jpeg', '.png']:
+            return None
+        artist = await self.db.get(Artist, artist_id)
+        if not artist:
+            return None
+        artist_dir = self.get_artist_directory(artist.name)
+        if not artist_dir:
+            return None
+        file_path = artist_dir / filename
+        if not file_path.is_file():
+            return None
+        return file_path
 
     async def find_common_track_artwork(self, artist_id: int) -> Path | None:
         '''
@@ -317,9 +448,12 @@ class ArtworkService:
             self.invalidate_artwork_cache(artist.id, 'artist', img_cate)
         else: 
             img_path = self._save_artwork_to_cache(artist.id, 'artist', content, img_cate)
-        # update cover_art_hash used for the front end cache refresh, same for album, playlist, track.
+        # update the corresponding hash field based on img_cate
         cover_art_hash = hashlib.sha1(content).hexdigest()
-        artist.cover_art_hash = cover_art_hash
+        if img_cate == 'face':
+            artist.face_art_hash = cover_art_hash
+        else:  # portrait
+            artist.portrait_art_hash = cover_art_hash
         await self.db.commit()
         return img_path
 
@@ -338,7 +472,7 @@ class ArtworkService:
         # (assume that all the track of the album is in the same directory)
         return Path(album.tracks[0].path).parent.name == album.title
 
-    async def get_album_directory(self, album: Album) -> Path | None:
+    def get_album_directory(self, album: Album) -> Path | None:
         '''get album directory'''
         try:
             return Path(album.tracks[0].path).parent
@@ -346,28 +480,36 @@ class ArtworkService:
             return None
 
     async def find_album_cover_in_directory(self, album_dir: Path) -> Path | None:
-        '''find cover.jpg / folder.jpg in the album directory'''
-        # infer the album directory from any track
-        # assume all the track of the album are in the same directory
+        '''
+        find cover.jpg / folder.jpg in the album directory and all subdirectories
+        recursively scans the directory tree for image files matching cover patterns
+        '''
+        full_album_dir = self.settings.MUSIC_LIBRARY_PATH / album_dir
+        if not full_album_dir.exists():
+            return None
 
+        # recursively find all image files in the album directory tree
         candidates = []
-        for entry in (self.settings.MUSIC_LIBRARY_PATH / album_dir).iterdir():
+        for entry in full_album_dir.rglob('*'):
             if entry.is_file() and entry.suffix.lower() in COVER_EXTENSIONS:
                 candidates.append(entry)
-        
+
+        if not candidates:
+            return None
+
+        # find the best match based on filename patterns (cover > folder > front > ...)
         best_match = None
         best_weight = len(COVER_FILENAME_PATTERNS)
         for c in candidates:
+            lower_name = c.stem.lower()
             for index, pattern in enumerate(COVER_FILENAME_PATTERNS):
-                if index < best_weight:
-                    if pattern.match(c.stem):
+                if pattern.match(lower_name):
+                    if index < best_weight:
                         best_match = c
                         best_weight = index
-                        break
-                    else:
-                        break
-        
-        return best_match if best_match else None
+                    break
+
+        return best_match
 
     async def get_or_cache_album_artwork(self, album_id: int) -> Path | None:
         '''
@@ -500,10 +642,3 @@ class ArtworkService:
         except Exception as e: 
             logger.error(f'Failed to set default {art_type} artwork.')
             raise e
-        
-    # region tools and tests
-    def get_folder_artist_art(self, area: str, char_range: str, artist_name: str, file_stem: str):
-        from tests.db_folder import get_folder_artist_art_file
-        return get_folder_artist_art_file(area, char_range, artist_name, file_stem)
-
-    # endregion tools and tests

@@ -11,11 +11,11 @@
 
 from pathlib import Path
 from datetime import datetime
-from pydantic import BaseModel, RootModel, ConfigDict, Field, field_validator, computed_field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field
 from app.models.artist import Artist
 from typing import TypeVar, Generic, Any
 
-DataT = TypeVar('DataT', bound=BaseModel)
+DataT = TypeVar('DataT')
 
 class ResponseModel(BaseModel, Generic[DataT]):
     '''unified response structure'''
@@ -39,17 +39,6 @@ class CountResponse(BaseModel):
     '''unified count response structure'''
     count: int
 
-class StrResponse(RootModel):
-    '''unified string response structure with root model'''
-    root: str
-
-class NumResponse(RootModel):
-    '''unified number response structure with root model'''
-    root: int
-
-class TimeListResponse(RootModel):
-    root: list[datetime]
-
 # music entity base schemas, avoid circular imports
 #==== Album ====
 class AlbumPrimary(BaseModel):
@@ -69,7 +58,8 @@ class ArtistPrimary(BaseModel):
     name: str
 
 class ArtistBase(ArtistPrimary):
-    cover_art_hash: str | None = None
+    face_art_hash: str | None = None
+    portrait_art_hash: str | None = None
 
 class ArtistBrief(ArtistBase):
     pinyin_initial: str
@@ -103,7 +93,7 @@ class PlaylistPrimary(BaseModel):
     cover_art_hash: str | None = None
 
 class PlaylistBase(PlaylistPrimary):
-    cover_art_hash: str | None = None
+    pass
 
 #==== Track ====
 class TrackPrimary(BaseModel):
@@ -143,11 +133,3 @@ class MediaPath(BaseModel):
         if isinstance(v, Path):
             return f'{str('[app-base]' / v)}'
         return v
-
-class MediaPathList(RootModel):
-    root: list[MediaPath]
-
-# ==== test ====
-class TestBase(BaseModel):
-    count: int | None = None
-    text: str | None = None

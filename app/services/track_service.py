@@ -51,15 +51,7 @@ class TrackService:
         raw = f'{tid}:{self.current_user_id}'
         token = signer.sign(raw).decode()
         return f'stream/{tid}?token={token}'
-    async def get_audio_file(self, track_id: int) -> str | None:
-        '''get track file path, use for streaming'''
-        result = await self.db.execute(select(Track.path).where(Track.id == track_id, Track.is_deleted == False))
-        track_path = result.scalar_one_or_none()
-        print(track_path)
-        if not track_path:
-            return None
-        abs_path = (self.settings.MUSIC_LIBRARY_PATH / track_path).resolve()
-        return str(abs_path)
+
     async def get_track_info(self, track_id: int) -> Track | None:
         """
         get track info:
@@ -97,7 +89,7 @@ class TrackService:
             .where(Track.id == track_id, Track.is_deleted == False)
             .options(
                 load_only(Track.id, Track.title, Track.duration, Track.cover_art_hash),
-                selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.cover_art_hash),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash),
                 joinedload(Track.album).load_only(Album.id, Album.title, Album.cover_art_hash),
             )
         )

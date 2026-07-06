@@ -11,20 +11,20 @@
 
 from fastapi import APIRouter, Depends, Query
 from app.schemas.common import ResponseModel, GenreBase
-from app.schemas.genre import GenresResponse, GenreTracksResponse
+from app.schemas.genre import GenreTracksResponse
 from app.services.genre_service import GenreService
 
 router = APIRouter()
 
-@router.get('/randomgenres', response_model=ResponseModel[GenresResponse])
+@router.get('/randomgenres', response_model=ResponseModel[list[GenreBase]])
 async def get_random_genres(service: GenreService = Depends(GenreService)):
     genres = await service.get_random_genres()
-    return ResponseModel(data=GenresResponse(genres))
+    return ResponseModel(data=[GenreBase.model_validate(g) for g in genres])
 
-@router.get('/genres', response_model=ResponseModel[GenresResponse])
+@router.get('/genres', response_model=ResponseModel[list[GenreBase]])
 async def get_genres(service: GenreService = Depends(GenreService)):
     genres = await service.get_all_genres()
-    return ResponseModel(data=GenresResponse(genres))
+    return ResponseModel(data=[GenreBase.model_validate(g) for g in genres])
 
 @router.get('/{genre_id}', response_model=ResponseModel[GenreBase])
 async def get_genre(genre_id: int, service: GenreService = Depends(GenreService)):

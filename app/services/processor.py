@@ -78,15 +78,15 @@ class MusicFileProcessor:
         # get artist from database
         result = await self.db.execute(select(Artist).where(Artist.name == name))
         artist = result.scalar_one_or_none()
-        if artist.mb_artistid != mbid and mbid is not None: 
-            # if mbid is different and not None, 
-            # update it in database, 
-            # this may happen when the artist is created by file 
-            # with missing mbid at first, 
-            # then updated by another file with mbid later.
-            artist.mb_artistid = mbid
-            await self.db.flush()
-        if artist: 
+        if artist:
+            if artist.mb_artistid != mbid and mbid is not None: 
+                # if mbid is different and not None, 
+                # update it in database, 
+                # this may happen when the artist is created by file 
+                # with missing mbid at first, 
+                # then updated by another file with mbid later.
+                artist.mb_artistid = mbid
+                await self.db.flush()
             self.artist_cache[name] = artist
             return artist
         
@@ -206,103 +206,12 @@ class MusicFileProcessor:
                     {'track_id': track.id, 'genre_id': genre.id} for genre in genres
                 ]))
             await self.db.flush()
-            self.logger.debug(f'✅Updated track {track.title} ({track.id}) successfully.')
+            logger.debug(f'✅Updated track {track.title} ({track.id}) successfully.')
             return True
         except Exception as e: # other exceptions, indicating database operation failure
-            self.logger.error(f'❌Failed to update track {track.id}: {e}')
+            logger.error(f'❌Failed to update track {track.id}: {e}')
             raise e
 
-    # async def process_single_file_back(self, file_path: Path) -> bool:
-    #     '''process single file, return True if success'''
-    #     if file_path in self.processed_files: 
-    #         return True
-
-    #     meta = parse_metadata(file_path)
-    #     if not meta: 
-    #         self.logger.warning(f'❌Failed to extract metadata from {file_path}')
-    #         return False
-        
-    #     # ===== infer album_artist_name =====
-    #     album_artist_name = None
-    #     mb_albumartistid = None
-
-    #     # 1. first use albumartist(the first one)
-    #     albumartist_list = meta.get('albumartist', [])
-    #     if albumartist_list:
-    #         album_artist_name = albumartist_list[0]
-    #         album_artist_name = album_artist_name.strip() if album_artist_name else None
-    #         mb_albumartistid_list = meta.get('mb_albumartistid', [])
-    #         if mb_albumartistid_list:
-    #             mb_albumartistid = mb_albumartistid_list[0].strip() if mb_albumartistid_list[0] else None
-
-    #     # 2. fallback to artist(the first one)
-    #     if not album_artist_name:
-    #         artist_list = meta['artists']
-    #         if artist_list:
-    #             album_artist_name = artist_list[0].strip() if artist_list[0] else None
-
-    #     # 3. final fallback
-    #     if not album_artist_name: 
-    #         album_artist_name = 'Unknown Artist'
-
-    #     # ===== create each entity (sequence is important) =====
-    #     # 1. get/handle/create Genre
-    #     genres = []
-    #     for genre_name in meta['genres']:
-    #         genre_strip = genre_name.strip() if genre_name else None
-    #         if genre_strip: 
-    #             genre = await self.get_or_create_genre(genre_strip)
-    #             if genre:
-    #                 genres.append(genre)
-
-    #     # 2. get/handle/create Artist
-    #     artists = []
-    #     for i, artist_name in enumerate(meta['artists']):
-    #         artist_strip = artist_name.strip() if artist_name else None
-    #         if artist_strip:
-    #             mbid = meta['mb_artistids'][i] if i < len(meta['mb_artistids']) else None
-    #             artist = await self.get_or_create_artist(artist_strip, mbid)
-    #             if artist:
-    #                 artists.append(artist)
-        
-    #     # 3. get/handle/create Album
-    #     # handle album title, if empty, set default title with “Unknown Album(album artist name)”
-    #     album_name = meta['album'].strip() if meta['album'] else f'Unknown Album({album_artist_name})'
-    #     album_artist = await self.get_or_create_artist(album_artist_name, mb_albumartistid)
-    #     if album_artist:
-    #         album = await self.get_or_create_album(album_name, meta['year'], meta['mb_albumid'], album_artist)
-
-    #     # 4. get/create Folder
-    #     folder = await self.get_or_create_folder(file_path.parent, self.root_path)
-
-    #     # 5. comput cover art hash
-    #     cover_art_hash = extract_cover_art_hash(file_path)
-
-    #     # 6. create/update Track
-    #     result = await self.db.execute(select(Track).where(Track.path == str(file_path.resolve())))
-    #     track = result.scalar_one_or_none()
-    #     if track:
-    #         await self.update_track(track, meta, cover_art_hash, folder, album, artists, genres)
-    #     else:
-    #         track = Track(
-    #             title=meta['title'],
-    #             duration=meta['duration'],
-    #             bitrate=meta['bitrate'],
-    #             bitrate_mode=meta['bitrate_mode'],
-    #             year=meta['year'],
-    #             acoustid_id=meta['acoustid_id'],
-    #             mb_trackid=meta['mb_trackid'],
-    #             cover_art_hash=cover_art_hash,
-    #             path=str(file_path.relative_to(self.root_path)),
-    #             folder=folder,
-    #             album=album,
-    #             artists=artists,    # handle many to many relations automatically
-    #             genres=genres       # handle many to many relations automatically
-    #         )
-    #         self.db.add(track)
-    #         self.processed_files.add(file_path)
-    #         return True
-        
     async def process_single_file(self, meta: ParsedMeta, is_incremental_scan: bool = False) -> bool:
         """process single file, return True if success"""
         # ===== infer album_artist_name =====

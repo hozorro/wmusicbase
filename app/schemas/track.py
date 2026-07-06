@@ -10,18 +10,13 @@
 
 
 from datetime import datetime
-from pydantic import model_validator, BaseModel, RootModel, Field
+from typing import Any
+from pydantic import model_validator, BaseModel, Field
 from app.models.track import Track
 from .common import TrackBase, TrackBrief, TrackMedium, AlbumBase
 
 class TrackFavRequest(BaseModel):
     is_favorited: bool = Field(..., title='Is favorited')
-
-class TrackBaseResponse(RootModel):
-    root: list[TrackBase] = Field(..., title='Tracks')
-
-class TrackBriefsResponse(RootModel):
-    root: list[TrackBrief] = Field(..., title='Track Briefs')
 
 class TrackInfoResponse(TrackMedium):
     album: AlbumBase
@@ -37,9 +32,6 @@ class TrackMoreInfoResponse(TrackBase):
     mb_trackid: str | None
     path: str
 
-class TrackFavResponse(RootModel):
-    root: datetime | None = Field(None, title='Is Favorited')
-
 class TrackDetail(TrackBase):
     artists: list[str]
     genres: list[str]
@@ -48,18 +40,15 @@ class TrackDetail(TrackBase):
 
     @model_validator(mode='before')
     @classmethod
-    def extract_names(cls, data: Track):
+    def extract_names(cls, data: Any) -> Any:
         if isinstance(data, Track):
-            track_dict = {
+            return {
                 'id': data.id,
                 'title': data.title,
+                'cover_art_hash': data.cover_art_hash,
                 'artists': [artist.name for artist in data.artists],
                 'genres': [genre.name for genre in data.genres],
                 'path': data.path,
                 'year': data.year
             }
-            return cls.model_validate(track_dict)
         return data
-    
-class LyricResponse(RootModel):
-    root: str | None = Field(None, title='Lyric')

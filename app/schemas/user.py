@@ -9,7 +9,7 @@
 '''
 
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 class UserBase(BaseModel):
@@ -23,10 +23,7 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
     
     id: int
-    last_login_at: datetime | None
-
-class UserListResponse(RootModel):
-    root: list[UserResponse]
+    created_at: datetime
 
 class TokenData(BaseModel):
     access_token: str

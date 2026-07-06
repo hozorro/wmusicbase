@@ -70,7 +70,6 @@ class PlaylistService:
             await self.db.flush()
 
             # 2. bind tracks
-            tracks= []
             missing = []
             if tracks and len(tracks) > 0:
                 if isinstance(tracks[0], str):  # path

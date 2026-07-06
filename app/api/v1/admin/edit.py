@@ -9,10 +9,11 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException
-from app.schemas.common import ResponseModel, SuccessMsgModel, NumResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, File
+from pydantic import BaseModel
+from app.schemas.common import ResponseModel, SuccessMsgModel, CountResponse, ArtistBase
 from app.schemas.filething import UpdateMetaTagList
-from app.schemas.artist import StartCharsResponse, ArtistsResponse, ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate
+from app.schemas.artist import ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate
 from app.schemas.album import AlbumResponse, AlbumArtCreate, album_art_upload_from_form
 from app.core.exceptions import BusinessException
 from app.core.deps import ADMIN_DEPS
@@ -23,15 +24,15 @@ from app.services.track_service import TrackService
 
 router = APIRouter(dependencies=ADMIN_DEPS)
 
-@router.get('/getartistchars', response_model=ResponseModel[StartCharsResponse], tags=['edit'])
+@router.get('/getartistchars', response_model=ResponseModel[list[tuple[str, bool]]], tags=['edit'])
 async def get_artist_chars(service: ArtistService = Depends(ArtistService)):
     start_chars = await service.get_artist_chars()
-    return ResponseModel(data=StartCharsResponse(start_chars))
+    return ResponseModel(data=start_chars)
 
-@router.get('/getartists/{start_char}', response_model=ResponseModel[ArtistsResponse], tags=['edit'])
-async def get_artists(start_char: str, without_path: bool, service: ArtistService = Depends(ArtistService)):
-    artists = await service.get_start_char_artists(start_char, without_path)
-    return ResponseModel(data=ArtistsResponse(artists))
+@router.get('/getartists/{start_char}', response_model=ResponseModel[list[ArtistBase]], tags=['edit'])
+async def get_artists(start_char: str, service: ArtistService = Depends(ArtistService)):
+    artists = await service.get_start_char_artists(start_char)
+    return ResponseModel(data=[ArtistBase.model_validate(a) for a in artists])
 
 @router.get('/artist/{artist_id}', response_model=ResponseModel[ArtistResponse], tags=['edit'])
 async def get_artist(artist_id: int, service: ArtistService = Depends(ArtistService)):
@@ -58,7 +59,7 @@ async def upload_artist_art(item: ArtistArtCreate = Depends(artist_art_upload_fr
         raise HTTPException(status_code=500, detail=f'Failed to save artist art: {str(e)}')
     return ResponseModel(data=ArtistArtUpdate.model_validate({id: item.id, 'art_type': item.art_type}))
 
-@router.post('/uploadalbumart', response_model=ResponseModel[NumResponse], tags=['edit'])
+@router.post('/uploadalbumart', response_model=ResponseModel[CountResponse], tags=['edit'])
 async def upload_album_art(item: AlbumArtCreate = Depends(album_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
     if item.file.content_type not in ['image/jpeg', 'image/png']:
         raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
@@ -67,7 +68,7 @@ async def upload_album_art(item: AlbumArtCreate = Depends(album_art_upload_from_
         await item.file.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to save album art: {str(e)}')
-    return ResponseModel(data=NumResponse(item.id))
+    return ResponseModel(data=CountResponse(count=item.id))
 
 @router.post('/updatetrackfieldtag', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
 async def update_track_field_tag(data: UpdateMetaTagList, service: TrackService = Depends(TrackService)):
@@ -75,3 +76,66 @@ async def update_track_field_tag(data: UpdateMetaTagList, service: TrackService 
     if errors:
         raise BusinessException(code=10002, msg='partial success', detail='\n'.join(errors))
     return ResponseModel(data=SuccessMsgModel())
+
+
+# ============ Artist Art Candidate APIs ============
+
+class SetArtistArtRequest(BaseModel):
+    artist_id: int
+    art_type: str
+    filename: str
+
+
+@router.get('/artistartcandidates/{artist_id}', response_model=ResponseModel[dict], tags=['edit'])
+async def get_artist_art_candidates(
+    artist_id: int,
+    art_type: str,
+    service: ArtworkService = Depends(ArtworkService)
+):
+    '''get candidate artwork filenames for an artist'''
+    if art_type not in ('face', 'portrait'):
+        raise HTTPException(status_code=400, detail='art_type must be face or portrait')
+    try:
+        candidates = await service.get_artist_art_candidates(artist_id, art_type)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return ResponseModel(data={'candidates': candidates})
+
+
+@router.post('/uploadartistartcandidate', response_model=ResponseModel[dict], tags=['edit'])
+async def upload_artist_art_candidate(
+    file: UploadFile = File(...),
+    artist_id: int = Form(...),
+    art_type: str = Form(...),
+    service: ArtworkService = Depends(ArtworkService)
+):
+    '''upload a candidate artwork image to the artist directory'''
+    # validate file type
+    if file.content_type not in ['image/jpeg', 'image/png']:
+        raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
+    # validate file size (read and check)
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail='File size exceeds 5MB limit')
+    if art_type not in ('face', 'portrait'):
+        raise HTTPException(status_code=400, detail='art_type must be face or portrait')
+    try:
+        filename = await service.upload_artist_art_candidate(artist_id, art_type, content)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return ResponseModel(data={'filename': filename})
+
+
+@router.post('/setartistart', response_model=ResponseModel[str], tags=['edit'])
+async def set_artist_art(
+    data: SetArtistArtRequest,
+    service: ArtworkService = Depends(ArtworkService)
+):
+    '''set an artist\'s official artwork from a candidate file'''
+    if data.art_type not in ('face', 'portrait'):
+        raise HTTPException(status_code=400, detail='art_type must be face or portrait')
+    try:
+        url = await service.set_artist_art_from_candidate(data.artist_id, data.art_type, data.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return ResponseModel(data=url)

@@ -127,7 +127,7 @@ class WatcherManager:
                             if len(processor.pending_tracks) >= 50:
                                 await processor.commit_pending_tracks()
                     except Exception as e:
-                        logger.error(f'❌Error processing file: {relative_path(path)}: str{e}')
+                        logger.error(f'❌Error processing file: {relative_path(path)}: {str(e)}')
                     finally:
                         self.queue.task_done()
                 except asyncio.TimeoutError:

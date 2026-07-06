@@ -36,6 +36,8 @@ async def get_client_type(request: Request) -> ClientType:
         return ClientType.ADMIN
     elif path.startswith('/api/v1/music'):
         return ClientType.PUBLIC
+    elif path.startswith('/api/v1/artwork'):
+        return ClientType.ADMIN
     
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST, 
@@ -69,7 +71,7 @@ async def get_current_user(
 ) -> CurrentUser:
     global _USER_CACHE
     if not token:
-        return credentials_exception
+        raise credentials_exception
     
     try:
         payload = await service.verify_access_token(token)

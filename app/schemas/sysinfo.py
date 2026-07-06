@@ -9,7 +9,7 @@
 '''
 
 
-from pydantic import BaseModel, RootModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from .track import TrackBase
 from .artist import ArtistBase
@@ -97,14 +97,6 @@ class MetaItem(BaseModel):
     total_count: int = Field(0, ge=0, description='entity count')
     last_update: datetime | None = Field(None, description='last updated time')
 
-class MusicStatInfo(RootModel):
-    root: list[MetaItem]
-
-class TransferRequest(BaseModel):
-    page_num: int | None = 1
-    page_size: int | None = 100
-    last_sync: datetime | None = None
-
 # endregion frontend
 
 # region tools
@@ -115,9 +107,6 @@ class ArtistArtRequest(BaseModel):
 class ArtistArt(BaseModel):
     name: str
     covers: list[str]
-
-class ArtistArtResponse(RootModel):
-    root: list[ArtistArt]
 
 class SetArtistArtsRequest(BaseModel):
     area: Literal['Chinese', 'Foreign']

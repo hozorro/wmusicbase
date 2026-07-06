@@ -117,7 +117,7 @@ async def logout(
     return ResponseModel(code=200, msg='ok', data=None)
 
 @router.get('/me', response_model=ResponseModel[CurrentUser])
-async def get_current_user(
+async def get_me(
     current_user: User = Depends(get_current_user)
 ):
     ''' get current user'''

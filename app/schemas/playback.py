@@ -53,7 +53,7 @@ class TrackImport(BaseModel):
     @field_validator('path')
     @classmethod
     def validate_path(cls, v):
-        if not v.startswith('Chinese') or not v.startswith('Foreign'):
+        if not v.startswith('Chinese') and not v.startswith('Foreign'):
             raise ValueError('Path is relative to music library root')
         return v
     
@@ -93,9 +93,6 @@ class PlaylistResponse(PlaylistBase):
 class PlaylistWithTracksResponse(PlaylistResponse):
     tracks: list[TrackBrief] | None = None
 
-class PlaylistsResponse(RootModel):
-    root: list[PlaylistBase] = Field(..., description='Playlists array')
-
 T = TypeVar('T', bound=datetime)
 class OperationImport(BaseModel, Generic[T]):
     track: str = Field(..., description='track path')
@@ -111,7 +108,7 @@ class OperationImport(BaseModel, Generic[T]):
     @field_validator('track')
     @classmethod
     def validate_path(cls, v):
-        if not v.startswith('Chinese') or not v.startswith('Foreign'):
+        if not v.startswith('Chinese') and not v.startswith('Foreign'):
             raise ValueError('Path is relative to music library root')
         return v
     
