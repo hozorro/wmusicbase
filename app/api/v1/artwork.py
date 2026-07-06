@@ -18,6 +18,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, Form
 from fastapi.responses import FileResponse
 from app.core.config import settings
+from app.core.deps import ADMIN_DEPS
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.services.artwork_service import ArtworkService
 from app.services.fetchcoverart import get_cover_art, cover_cache
@@ -87,6 +88,21 @@ async def get_default_artwork(art_type: str, service: ArtworkService = Depends(A
     if cache_path: 
         return FileResponse(cache_path)
     raise HTTPException(status_code=404, detail='Default artwork not Found')
+
+@router.get('/candidates/{artist_id}/{filename}', tags=['artwork'])
+async def get_artist_art_candidate(
+    artist_id: int,
+    filename: str,
+    service: ArtworkService = Depends(ArtworkService)
+):
+    '''serve candidate artwork image for an artist (admin only)'''
+    file_path = await service.get_artist_candidate_file(artist_id, filename)
+    if not file_path:
+        raise HTTPException(status_code=404, detail='Candidate artwork not found')
+    return FileResponse(
+        file_path,
+        headers={'Cache-Control': 'no-cache'}  # no caching since frontend uses ?t= timestamp
+    )
 
 @router.post('/default', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
 async def set_default_art(cover: UploadFile, art_type: str = Form(...), service: ArtworkService = Depends(ArtworkService)):

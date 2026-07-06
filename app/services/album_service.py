@@ -26,10 +26,10 @@ class AlbumService:
         stmt = (select(Album)
                 .where(Album.id == album_id)
                 .options(
-                    selectinload(Album.album_artist).load_only(Artist.id, Artist.name, Artist.cover_art_hash),
+                    selectinload(Album.album_artist).load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash),
                     selectinload(Album.tracks).options(
                         load_only(Track.id, Track.title, Track.cover_art_hash),
-                        selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.cover_art_hash),
+                        selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash),
                     )
                 )
             )

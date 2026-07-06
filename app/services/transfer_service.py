@@ -15,7 +15,10 @@ from sqlalchemy import select, delete, insert, func, or_, distinct
 from sqlalchemy.orm import selectinload, load_only
 from app.core.deps import DbDep, SettingsDep
 from app.schemas.transfer import TransferHitsList, TransferFav, UploadPlaylists
-from app.models import Album, Artist, ArtistFav, Folder, Genre, Playlist, PlaylistHit, PlaylistTrack, SyncMeta, Track, TrackFav, TrackHit
+from app.models import (
+    Album, Artist, ArtistFav, Folder, Genre, Playlist, track_artists,
+    PlaylistHit, PlaylistTrack, SyncMeta, Track, TrackFav, TrackHit
+)
 from app.services.sync import Syncer
 
 class TransferService:
@@ -87,7 +90,8 @@ class TransferService:
                 Artist.id, 
                 Artist.name, 
                 Artist.pinyin_initial, 
-                Artist.cover_art_hash,
+                Artist.face_art_hash,
+                Artist.portrait_art_hash,
                 func.count(Track.id).label('track_count'), 
             ).select_from(Artist)
             .outerjoin(track_artists, Artist.id == track_artists.c.artist_id)
@@ -101,9 +105,10 @@ class TransferService:
             'id': id,
             'name': name,
             'pinyin_initial': pinyin_initial,
-            'cover_art_hash': cover_art_hash,
+            'face_art_hash': face_art_hash,
+            'portrait_art_hash': portrait_art_hash,
             'track_count': track_count,
-        } for (id, name, pinyin_initial, cover_art_hash, track_count) in result.all()]
+        } for (id, name, pinyin_initial, face_art_hash, portrait_art_hash, track_count) in result.all()]
         return artists
 
     async def transfer_folders(self, last_sync: datetime, page_num: int = 1, page_size: int = 100, ) -> list[Folder]:

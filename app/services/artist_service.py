@@ -33,19 +33,15 @@ class ArtistService:
         start_chars = list(map(lambda x: (x, True) if x in list_chars else (x, False), chars))
         return start_chars
     
-    async def get_start_char_artists(self, start_char: str, without_path: bool = False) -> list[dict]:
+    async def get_start_char_artists(self, start_char: str) -> list[dict]:
         result = await self.db.execute(
             select(Artist)
             .filter(Artist.pinyin_initial == start_char)
             .options(
-                load_only(Artist.id, Artist.name, Artist.pinyin_initial, Artist.cover_art_hash)
+                load_only(Artist.id, Artist.name, Artist.pinyin_initial, Artist.face_art_hash, Artist.portrait_art_hash)
             )
         )
         artists = result.scalars().all()
-        if without_path:
-            service = ArtworkService(self.db, self.settings)
-            artists_without_path = [artist for artist in artists if not service.has_artist_directory(artist['name'])]
-            return artists_without_path
         return artists
     
     async def _get_artist_albums_separated(self, artist_id: int) -> tuple[list[Album], list[Album]]:
@@ -164,7 +160,7 @@ class ArtistService:
             .order_by(desc(func.count(TrackHit.id)))
             .limit(6)
             .options(
-                load_only(Artist.id, Artist.name, Artist.cover_art_hash)
+                load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash)
             )
         )
         result_6 = await self.db.execute(stmt)
@@ -184,7 +180,7 @@ class ArtistService:
             .join(ArtistFav, Artist.id == ArtistFav.artist_id)
             .where(ArtistFav.user_id == self.current_user_id)
             .options(
-                load_only(Artist.id, Artist.name, Artist.cover_art_hash)
+                load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash)
             )
         )
         result = await self.db.execute(stmt)

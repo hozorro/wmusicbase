@@ -58,7 +58,8 @@ class ArtistPrimary(BaseModel):
     name: str
 
 class ArtistBase(ArtistPrimary):
-    cover_art_hash: str | None = None
+    face_art_hash: str | None = None
+    portrait_art_hash: str | None = None
 
 class ArtistBrief(ArtistBase):
     pinyin_initial: str

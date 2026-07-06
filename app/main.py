@@ -12,6 +12,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.db import engine
@@ -68,6 +69,14 @@ async def add_cors_to_fileresponse(request, call_next):
 
 #=========== Including routers ===================
 app.include_router(api_router, prefix="/api/v1")
+
+#=========== Static file serving (DEBUG only) ====
+# In production, nginx serves these files directly from ARTWORK_DIR
+if settings.DEBUG:
+    app.mount('/media/artists', StaticFiles(directory=str(settings.ARTIST_ARTWORK_DIR)), name='media_artists')
+    app.mount('/media/albums', StaticFiles(directory=str(settings.ALBUM_ARTWORK_DIR)), name='media_albums')
+    app.mount('/media/tracks', StaticFiles(directory=str(settings.TRACK_ARTWORK_DIR)), name='media_tracks')
+    app.mount('/media/playlists', StaticFiles(directory=str(settings.PLAYLIST_ARTWORK_DIR)), name='media_playlists')
 
 #=========== Global exception handlers ===========
 for exc_type, handler in EXCEPTION_HANDLERS:

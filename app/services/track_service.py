@@ -89,7 +89,7 @@ class TrackService:
             .where(Track.id == track_id, Track.is_deleted == False)
             .options(
                 load_only(Track.id, Track.title, Track.duration, Track.cover_art_hash),
-                selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.cover_art_hash),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash),
                 joinedload(Track.album).load_only(Album.id, Album.title, Album.cover_art_hash),
             )
         )
