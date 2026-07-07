@@ -9,11 +9,15 @@
 '''
 
 
+import hashlib
 from sqlalchemy import select
 from app.models import Artist, Album, Track, Playlist
 from app.services.artwork_service import ArtworkService
 from app.core.state import system_state
 from app.core.logger import logger
+
+# batch commit interval
+_BATCH_COMMIT_SIZE = 100
 
 
 class ArtworkGenerator:
@@ -69,6 +73,7 @@ class ArtworkGenerator:
             get_cache_path=lambda a: self.service.settings.ARTIST_ARTWORK_DIR / f'{a.id}_face.jpg',
             generate_fn=lambda a: self.service.get_or_cache_artist_artwork(a.id, 'face'),
             item_label=lambda a: f'{a.id}:{a.name}',
+            hash_attr='face_art_hash',
         )
 
         if system_state.is_artwork_gen_canceled:
@@ -81,6 +86,7 @@ class ArtworkGenerator:
             get_cache_path=lambda a: self.service.settings.ARTIST_ARTWORK_DIR / f'{a.id}_portrait.jpg',
             generate_fn=lambda a: self.service.get_or_cache_artist_artwork(a.id, 'portrait'),
             item_label=lambda a: f'{a.id}:{a.name}',
+            hash_attr='portrait_art_hash',
         )
 
     async def _generate_album_artworks(self):
@@ -94,6 +100,7 @@ class ArtworkGenerator:
             get_cache_path=lambda a: self.service.settings.ALBUM_ARTWORK_DIR / f'{a.id}.jpg',
             generate_fn=lambda a: self.service.get_or_cache_album_artwork(a.id),
             item_label=lambda a: f'{a.id}:{a.title}',
+            hash_attr='cover_art_hash',
         )
 
     async def _generate_track_artworks(self):
@@ -107,6 +114,7 @@ class ArtworkGenerator:
             get_cache_path=lambda t: self.service.settings.TRACK_ARTWORK_DIR / f'{t.id}.jpg',
             generate_fn=lambda t: self.service.get_or_cache_track_artwork(t.id),
             item_label=lambda t: f'{t.id}:{t.title or t.file_name}',
+            hash_attr='cover_art_hash',
         )
 
     async def _generate_playlist_artworks(self):
@@ -120,6 +128,7 @@ class ArtworkGenerator:
             get_cache_path=lambda p: self.service.settings.PLAYLIST_ARTWORK_DIR / f'{p.id}.jpg',
             generate_fn=lambda p: self.service.get_or_cache_playlist_artwork(p.id),
             item_label=lambda p: f'{p.id}:{p.name}',
+            hash_attr='cover_art_hash',
         )
 
     async def _run_phase(
@@ -129,15 +138,19 @@ class ArtworkGenerator:
         get_cache_path,
         generate_fn,
         item_label,
+        hash_attr: str = '',
     ):
         '''
-        Run a single generation phase
+        Run a single generation phase.
+        After generating (or finding existing) the file, computes SHA1 hash
+        and updates the entity's hash field in the database.
         Args:
             phase_name: name of the phase (e.g. 'artist_face')
             items: list of entities to process
             get_cache_path: function to get cache file path for an entity
             generate_fn: async function to generate artwork for an entity
             item_label: function to get a display label for an entity
+            hash_attr: name of the hash attribute on the entity to update (e.g. 'cover_art_hash')
         '''
         progress = system_state.artwork_progress
         progress['phase'] = phase_name
@@ -149,6 +162,8 @@ class ArtworkGenerator:
 
         logger.info(f'Artwork generation phase [{phase_name}]: {len(items)} items')
 
+        pending_count = 0
+
         for item in items:
             if system_state.is_artwork_gen_canceled:
                 break
@@ -156,21 +171,49 @@ class ArtworkGenerator:
             progress['current_item'] = item_label(item)
             cache_path = get_cache_path(item)
 
-            if cache_path.exists():
-                progress['phase_skipped'] += 1
-                progress['total_skipped'] += 1
-            else:
-                try:
+            try:
+                if not cache_path.exists():
                     result = await generate_fn(item)
-                    if result:
-                        progress['phase_generated'] += 1
-                        progress['total_generated'] += 1
-                    else:
+                    if not result:
                         progress['phase_failed'] += 1
                         progress['total_failed'] += 1
-                except Exception as e:
-                    logger.warning(f'Failed to generate {phase_name} artwork for {item_label(item)}: {e}')
-                    progress['phase_failed'] += 1
-                    progress['total_failed'] += 1
+                        progress['phase_processed'] += 1
+                        continue
+                    progress['phase_generated'] += 1
+                    progress['total_generated'] += 1
+                else:
+                    progress['phase_skipped'] += 1
+                    progress['total_skipped'] += 1
+
+                # compute hash and update entity if hash_attr is specified
+                if hash_attr and cache_path.exists():
+                    file_hash = self._compute_file_hash(cache_path)
+                    current_hash = getattr(item, hash_attr, None)
+                    if file_hash != current_hash:
+                        setattr(item, hash_attr, file_hash)
+                        pending_count += 1
+
+            except Exception as e:
+                logger.warning(f'Failed to generate {phase_name} artwork for {item_label(item)}: {e}')
+                progress['phase_failed'] += 1
+                progress['total_failed'] += 1
 
             progress['phase_processed'] += 1
+
+            # batch commit to avoid too many pending changes
+            if pending_count >= _BATCH_COMMIT_SIZE:
+                await self.service.db.commit()
+                pending_count = 0
+
+        # commit remaining changes
+        if pending_count > 0:
+            await self.service.db.commit()
+
+    @staticmethod
+    def _compute_file_hash(file_path) -> str:
+        '''compute SHA1 hash of a file'''
+        h = hashlib.sha1()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                h.update(chunk)
+        return h.hexdigest()
