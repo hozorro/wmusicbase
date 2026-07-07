@@ -139,9 +139,12 @@ async def get_dashboard_stats(
         'server_uptime': str(timedelta(seconds=int(uptime.total_seconds())))
     }
     # watcher status
+    # Note: is_running reflects the in-process watcher (dev mode).
+    # In production, watcher runs as a separate supervisor process.
     watcher_info = {
         'is_running': system_state.is_watcher_running,
-        'watcher_path': str(settings.MUSIC_LIBRARY_PATH)
+        'watcher_path': str(settings.MUSIC_LIBRARY_PATH),
+        'mode': 'dev (in-process)' if settings.DEBUG else 'production (supervisor)'
     }
     return ResponseModel(
         data=DashboardInfo.model_validate({

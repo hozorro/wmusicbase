@@ -1,0 +1,55 @@
+; ============================================================
+; wmusicbase supervisor configuration
+; ============================================================
+;
+; Usage:
+;   1. Copy this file to /etc/supervisor/conf.d/wmusicbase.conf
+;   2. Replace all placeholders marked with ←
+;   3. Run: sudo supervisorctl reread && sudo supervisorctl update
+;
+; Programs:
+;   - wmusicbase-api:      FastAPI backend (uvicorn)
+;   - wmusicbase-watcher:  Music library file watcher (independent process)
+; ============================================================
+
+; -------------------------------------------------------
+; FastAPI Backend
+; -------------------------------------------------------
+[program:wmusicbase-api]
+command=/path/to/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1  ; ← Replace venv path
+directory=/path/to/wmusicbase  ; ← Replace project path
+autostart=true
+autorestart=true
+numprocs=1
+user=www-data  ; ← Replace with your user
+stdout_logfile=/path/to/logs/supervisor/api.out.log  ; ← Replace log path
+stderr_logfile=/path/to/logs/supervisor/api.error.log
+environment=
+    PYTHONUNBUFFERED="1"
+    ; Add any environment variables needed
+    ; DATABASE_URL="postgresql+asyncpg://user:pass@host/dbname"
+
+; -------------------------------------------------------
+; Music Library Watcher (independent process)
+; Runs watchdog to monitor music library changes
+; -------------------------------------------------------
+[program:wmusicbase-watcher]
+command=/path/to/venv/bin/python -m app.background.watcher  ; ← Replace venv path
+directory=/path/to/wmusicbase  ; ← Replace project path
+autostart=true
+autorestart=true
+numprocs=1
+user=www-data  ; ← Replace with your user
+stdout_logfile=/path/to/logs/supervisor/watcher.out.log  ; ← Replace log path
+stderr_logfile=/path/to/logs/supervisor/watcher.error.log
+environment=
+    PYTHONUNBUFFERED="1"
+
+; -------------------------------------------------------
+; Group (optional - manage both with one command)
+; Usage: sudo supervisorctl start wmusicbase:*
+;        sudo supervisorctl stop wmusicbase:*
+;        sudo supervisorctl restart wmusicbase:*
+; -------------------------------------------------------
+[group:wmusicbase]
+programs=wmusicbase-api,wmusicbase-watcher

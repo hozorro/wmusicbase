@@ -1,7 +1,13 @@
-# wmusicbase nginx configuration template
-# This configuration serves artwork as static files for better performance
+# ============================================================
+# wmusicbase nginx configuration
+# Architecture:
+#   /           → player frontend (static)
+#   /admin/     → admin frontend (static)
+#   /api/       → reverse proxy to FastAPI /api/v1/
+#   /stream/    → audio streaming proxy (no buffering)
+#   /media/     → artwork static files (DEBUG only in FastAPI)
+# ============================================================
 
-# Upstream FastAPI application
 upstream wmusicbase_backend {
     server 127.0.0.1:8000;
     keepalive 32;
@@ -9,88 +15,138 @@ upstream wmusicbase_backend {
 
 server {
     listen 80;
-    server_name your-domain.com;  # Replace with your domain
+    server_name your-domain.com;  # ← Replace with your domain
 
-    # Static files - artwork (served directly by nginx for performance)
-    # URL pattern: /media/artists/{id}_face.jpg, /media/artists/{id}_portrait.jpg
-    #              /media/albums/{id}.jpg
-    #              /media/tracks/{id}.jpg
-    #              /media/playlists/{id}.jpg
+    # Max upload size (for artist/album image upload)
+    client_max_body_size 10m;
+
+    # -------------------------------------------------------
+    # 1. Artwork static files (served directly by nginx)
+    #    In production, FastAPI does NOT serve /media/ (DEBUG=False)
+    #    URL: /media/artists/{id}_face.jpg, /media/albums/{id}.jpg, etc.
+    # -------------------------------------------------------
     location /media/ {
-        alias /path/to/media/artwork/;  # Replace with actual ARTWORK_DIR path
-        
-        # Cache for 1 year (immutable because URL contains hash)
+        alias /path/to/media/artwork/;  # ← Replace with settings.ARTWORK_DIR
+
         expires 1y;
         add_header Cache-Control "public, immutable";
-        
-        # Enable gzip for images (optional, may not help much for already compressed images)
-        # gzip on;
-        # gzip_types image/jpeg image/png;
-        
-        # Security headers
         add_header X-Content-Type-Options "nosniff";
-        
-        # CORS headers (if needed for cross-origin requests)
-        # add_header Access-Control-Allow-Origin *;
-        
-        # Fallback to default images if not found
-        # error_page 404 = /media/default/$1.jpg;
     }
 
-    # Default artwork images
-    location /media/default/ {
-        alias /path/to/media/artwork/default/;  # Replace with actual default artwork path
-        expires 1h;
-        add_header Cache-Control "public";
-    }
-
-    # Audio streaming - requires range support
-    location /stream/ {
-        proxy_pass http://wmusicbase_backend;
+    # -------------------------------------------------------
+    # 2. Audio streaming - proxy to backend with no buffering
+    #    Frontend URL: /api/stream/{tid}?token={token}
+    #    nginx rewrites /api/* → /api/v1/* for the backend
+    #    proxy_buffering off is CRITICAL for audio streaming
+    # -------------------------------------------------------
+    location /api/stream/ {
+        proxy_pass http://wmusicbase_backend/api/v1/stream/;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
-        
-        # Range request support for audio seeking
+
+        # Forward Range headers for audio seeking
         proxy_set_header Range $http_range;
         proxy_set_header If-Range $http_if_range;
-        
-        # Buffering settings for streaming
+
+        # CRITICAL: disable buffering for real-time streaming
         proxy_buffering off;
         proxy_request_buffering off;
-        
-        # Timeout settings
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
 
-    # API and other requests - proxy to FastAPI
-    location / {
-        proxy_pass http://wmusicbase_backend;
-        proxy_http_version 1.1;
-        
         # Standard proxy headers
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
+
+        # Timeout for long audio files
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # -------------------------------------------------------
+    # 3. API - proxy to FastAPI backend
+    #    Frontend calls /api/xxx → nginx proxies to /api/v1/xxx
+    # -------------------------------------------------------
+    location /api/ {
+        proxy_pass http://wmusicbase_backend/api/v1/;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        # Standard proxy headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
         # WebSocket support (if needed)
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        
+
         # Timeout settings
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
-        
+
         # Buffer settings
         proxy_buffer_size 128k;
         proxy_buffers 4 256k;
         proxy_busy_buffers_size 256k;
     }
 
-    # Health check endpoint
+    # -------------------------------------------------------
+    # 4. Admin frontend (static files)
+    #    URL: /admin/ → serves admin dist files
+    #    SPA fallback: try files, fallback to /admin/index.html
+    # -------------------------------------------------------
+    location /admin/ {
+        alias /path/to/admin/dist/;  # ← Replace with admin frontend build path
+        index index.html;
+
+        # SPA history mode fallback
+        try_files $uri $uri/ /admin/index.html;
+
+        # HTML files should not be cached (ensure updates take effect)
+        location ~* \.html$ {
+            add_header Cache-Control "no-cache";
+            expires 0;
+        }
+
+        # Static assets (js/css/images) can be cached long-term
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 30d;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+
+    # -------------------------------------------------------
+    # 5. Player frontend (static files) - default location
+    #    URL: / → serves player dist files
+    #    SPA fallback: try files, fallback to /index.html
+    # -------------------------------------------------------
+    location / {
+        root /path/to/player/dist/;  # ← Replace with player frontend build path
+        index index.html;
+
+        # SPA history mode fallback
+        try_files $uri $uri/ /index.html;
+
+        # HTML files should not be cached
+        location ~* \.html$ {
+            add_header Cache-Control "no-cache";
+            expires 0;
+        }
+
+        # Static assets can be cached long-term
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 30d;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+
+    # -------------------------------------------------------
+    # 6. Health check
+    # -------------------------------------------------------
     location /health {
         access_log off;
         return 200 "OK\n";

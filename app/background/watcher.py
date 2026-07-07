@@ -15,7 +15,7 @@
 # If use watcher in separated process, 
 # use supervisor to manage watcher with this module.
 
-import time, asyncio
+import time, asyncio, signal
 from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -169,7 +169,15 @@ class MusicLibraryWatcher:
 
 if __name__ == '__main__':
     watcher = MusicLibraryWatcher(str(settings.MUSIC_LIBRARY_PATH))
+
+    # Handle SIGTERM from supervisor for graceful shutdown
+    def _signal_handler(signum, frame):
+        logger.info(f'Received signal {signum}, shutting down...')
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     try:
         asyncio.run(watcher.run())
     except KeyboardInterrupt:
-        logger.info('Keyboard interrupt, watcher stopped.')
+        logger.info('Watcher stopped.')
