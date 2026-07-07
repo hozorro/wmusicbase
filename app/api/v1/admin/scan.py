@@ -80,8 +80,12 @@ def cancel_scan(current_user: CurrentUser = Depends(require_admin)):
 def scan_progress(request: Request, _: CurrentUser = Depends(require_admin)):
     return StreamingResponse(progress_generator(request), media_type='text/event-stream')
 
+# ============ Watcher control (Development only) ============
+# In production, watcher runs as an independent process managed by supervisor.
+# These endpoints use watcher_manager.py for development/debugging without supervisor.
 @router.post('/startwatcher', response_model=ResponseModel[None])
 async def start_watcher(current_user: CurrentUser = Depends(require_admin)):
+    '''Start the file watcher (development mode only, production uses supervisor)'''
     success, msg = watcher.start()
     if success:
         logger.info(f"👀{current_user.username} started the file watcher.")
@@ -90,6 +94,7 @@ async def start_watcher(current_user: CurrentUser = Depends(require_admin)):
 
 @router.post('/stopwatcher', response_model=ResponseModel[None])
 async def stop_watcher(current_user: CurrentUser = Depends(require_admin)):
+    '''Stop the file watcher (development mode only, production uses supervisor)'''
     success, msg = watcher.stop()
     if success:
         logger.info(f"👀{current_user.username} stopped the file watcher.")

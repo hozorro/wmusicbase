@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.exception_handlers import EXCEPTION_HANDLERS
 from app.core.middleware import ScanMiddleware
-from app.background.watcher_manager import watcher
+from app.background.watcher_manager import watcher  # dev mode only; production uses supervisor
 from app.api.v1 import api_router
 from app.core.logger import init_logging, logger
 
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("🛑Shutting down...")
-    ## Stop watcher
+    # Stop watcher if running in dev mode (production uses supervisor)
     if watcher.is_running(): 
         watcher.stop()
 
