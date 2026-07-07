@@ -11,7 +11,7 @@
 
 from datetime import datetime
 from pydantic import BaseModel, RootModel, model_validator, Field
-from .common import FolderBase, ArtistPrimary, AlbumPrimary, TrackPrimary, GenreBase, PlaylistPrimary
+from .common import FolderBase, ArtistPrimary, ArtistBase, AlbumPrimary, AlbumBase, TrackBase, GenreBase, PlaylistPrimary
 from typing import Any
 
 class TransferRequest(BaseModel):
@@ -19,7 +19,7 @@ class TransferRequest(BaseModel):
     page_num: int = Field(1, description='Page number, as the transfer batch numbe')
     page_size: int = Field(100, description='Page size, as the transfer batch size')
 
-class TransferAlbum(AlbumPrimary):
+class TransferAlbum(AlbumBase):
     album_artist: ArtistPrimary
     artists: list[ArtistPrimary]
 
@@ -40,7 +40,7 @@ class TransferAlbum(AlbumPrimary):
             data['artists'] = list(artists_dict.values())
         return data
 
-class TransferArtist(ArtistPrimary):
+class TransferArtist(ArtistBase):
     pinyin_initial: str
     track_count: int
 
@@ -50,7 +50,7 @@ class TransferFolder(FolderBase):
 class TransferGenre(GenreBase):
     info: dict | None
 
-class TransferTrack(TrackPrimary):
+class TransferTrack(TrackBase):
     year: int | None
     album: AlbumPrimary
     artists: list[ArtistPrimary]
