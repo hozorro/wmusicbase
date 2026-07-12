@@ -338,7 +338,10 @@ class TrackService:
                 res = requests.get(
                     self.settings.LYRIC_OUT_BASE_URL + 'single', 
                     params=params,
-                    headers={'Content-Type': 'text/plain'},
+                    headers={
+                        'Content-Type': 'text/plain',
+                        'Authorization': self.config.LYRIC_OUT_API_KEY,
+                    },
                     timeout=10
                 )
                 text = res.text
