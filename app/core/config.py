@@ -150,6 +150,7 @@ class Settings(BaseSettings):
 
     # ========== Lyric config ===========
     LYRIC_OUT_BASE_URL:str = Field('http://localhost:28883/api/v1/lyrics/', description='lyric server address base url')
+    LYRIC_OUT_API_KEY: str = Field('your-lyric-auth', description='lyric server api key')
 
     # ========== AI config ==============
     AI_API_KEY: str = Field('change-to-your-ai-key', description='AI api key')
