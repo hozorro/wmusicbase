@@ -116,7 +116,7 @@ class TrackService:
         stmt = (
             select(Track)
             .options(
-                load_only(Track.id, Track.title),
+                load_only(Track.id, Track.title, Track.cover_art_hash),
                 selectinload(Track.artists).load_only(Artist.name)
             )
             .where(Track.is_deleted == False)
@@ -131,7 +131,7 @@ class TrackService:
         '''get random tracks of an artist'''
         stmt = (
             select(Track).options(
-                load_only(Track.id, Track.title),
+                load_only(Track.id, Track.title, Track.cover_art_hash),
             )
             .join(track_artists, Track.id == track_artists.c.track_id)
             .where(track_artists.c.artist_id == artist_id, Track.is_deleted == False)
@@ -146,7 +146,7 @@ class TrackService:
         '''get random tracks of an genre'''
         stmt = (
             select(Track).options(
-                load_only(Track.id, Track.title),
+                load_only(Track.id, Track.title, Track.cover_art_hash),
             )
             .join(track_genres, Track.id == track_genres.c.track_id)
             .where(Track.is_deleted == False, track_genres.c.genre_id == genre_id)
@@ -340,7 +340,7 @@ class TrackService:
                     params=params,
                     headers={
                         'Content-Type': 'text/plain',
-                        'Authorization': self.config.LYRIC_OUT_API_KEY,
+                        'Authorization': self.settings.LYRIC_OUT_API_KEY,
                     },
                     timeout=10
                 )
