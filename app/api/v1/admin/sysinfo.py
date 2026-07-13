@@ -198,9 +198,6 @@ async def get_init_dir():
     for init_dir in init_dirs:
         if not init_dir['path'].exists():
             init_dir['path'] = None
-        if init_dir['name'] == 'Logs':
-            init_dir['path'] = settings.LOG_DIR.relative_to(settings.PROJECT_ROOT)
-            
 
     return ResponseModel(data=[MediaPath.model_validate(d) for d in init_dirs])
 
