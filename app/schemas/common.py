@@ -106,7 +106,18 @@ class TrackBase(TrackPrimary):
     cover_art_hash: str | None = None
 
 class TrackBrief(TrackBase):
+    duration: float
+    album: str
     artists: list[str]  # artist_names list
+
+    @field_validator('album', mode='before')
+    @classmethod
+    def extract_album_title(cls, v: Any) -> str:
+        if v is None:
+            return ''
+        if hasattr(v, 'title'):
+            return v.title
+        return str(v)
 
     @field_validator('artists', mode='before')
     @classmethod
