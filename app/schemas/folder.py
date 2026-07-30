@@ -9,10 +9,10 @@
 '''
 
 
-from .common import FolderBase, TrackBase
+from .common import FolderBase, TrackBrief
 
 class FolderResponse(FolderBase):  
     parent_id: int | None 
     children: list[FolderBase]
-    tracks: list[TrackBase]
+    tracks: list[TrackBrief]
     

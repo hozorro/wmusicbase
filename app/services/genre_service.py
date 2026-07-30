@@ -10,11 +10,9 @@
 
 
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload, load_only
+from sqlalchemy.orm import selectinload, load_only, joinedload
 from app.core.deps import SettingsDep, DbDep
-from app.models.genre import Genre
-from app.models.track import Track, track_genres
-from app.models.artist import Artist
+from app.models import Genre, Track, Artist, Album, track_genres
 
 class GenreService:
     def __init__(self, db: DbDep, settings: SettingsDep):
@@ -54,8 +52,9 @@ class GenreService:
         result = await self.db.execute(
             select(Track)
             .options(
-                load_only(Track.id, Track.title, Track.cover_art_hash),
-                selectinload(Track.artists).load_only(Artist.name)
+                load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
+                selectinload(Track.artists).load_only(Artist.name),
+                joinedload(Track.album).load_only(Album.title)
             )
             .join(track_genres, Track.id == track_genres.c.track_id)
             .where(track_genres.c.genre_id == genre_id)

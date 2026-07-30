@@ -12,9 +12,9 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload, load_only
 from app.core.deps import SettingsDep, DbDep
-from app.models import Folder, Track, SyncMeta
+from app.models import Folder, Track, Album, SyncMeta
 from app.schemas.sysinfo import ScanFolder
 
 class FolderService:
@@ -29,7 +29,10 @@ class FolderService:
             .where(Folder.id == folder_id)
             .options(
                 selectinload(Folder.children).load_only(Folder.id, Folder.path),
-                selectinload(Folder.tracks).load_only(Track.id, Track.title, Track.cover_art_hash),
+                selectinload(Folder.tracks).options(
+                    load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
+                    joinedload(Track.album).load_only(Album.id, Album.title),
+                ),
             )   
         )
         result = await self.db.execute(stmt)
