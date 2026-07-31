@@ -9,7 +9,7 @@
 '''
 
 
-from sqlalchemy.orm import selectinload, load_only
+from sqlalchemy.orm import selectinload, joinedload, load_only
 from sqlalchemy import select
 from app.core.deps import SettingsDep, DbDep
 from app.models.album import Album
@@ -28,7 +28,8 @@ class AlbumService:
                 .options(
                     selectinload(Album.album_artist).load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash),
                     selectinload(Album.tracks).options(
-                        load_only(Track.id, Track.title, Track.cover_art_hash),
+                        load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
+                        joinedload(Track.album).load_only(Album.id, Album.title),
                         selectinload(Track.artists).load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash),
                     )
                 )

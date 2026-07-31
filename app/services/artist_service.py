@@ -11,7 +11,7 @@
 
 from fastapi import Request
 from sqlalchemy import select, literal_column, case, func, desc, nulls_last
-from sqlalchemy.orm import load_only, selectinload
+from sqlalchemy.orm import load_only, selectinload, joinedload
 from app.core.deps import SettingsDep, DbDep
 from app.models.artist import Artist
 from app.models.album import Album
@@ -103,8 +103,9 @@ class ArtistService:
             )
             .limit(top_count)
             .options(
-                load_only(Track.id, Track.title, Track.cover_art_hash),
+                load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
                 selectinload(Track.artists).load_only(Artist.name),
+                joinedload(Track.album).load_only(Album.title),
             )
         )
         result = await self.db.execute(main_stmt)

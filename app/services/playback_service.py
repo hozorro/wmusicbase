@@ -18,10 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
-from app.models.track import Track
-from app.models.playback import Playlist, PlaylistTrack, TrackHit, TrackFav, PlaylistHit
-from app.models.user import User
-from app.models.artist import Artist
+from app.models import Track, Artist, Album, Playlist, PlaylistTrack, PlaylistHit, TrackHit, TrackFav, User
 from app.services.user_service import UserService
 from app.services.sync import Syncer
 from app.schemas.playback import PlaylistImportRoot, HitImportRoot, FavImportRoot
@@ -222,7 +219,8 @@ class PlaylistService:
                 joinedload(Playlist.user).load_only(User.username),
                 selectinload(Playlist.tracks)
                 .options(
-                    load_only(Track.id, Track.title, Track.cover_art_hash),
+                    load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
+                    joinedload(Track.album).load_only(Album.title),
                     selectinload(Track.artists).load_only(Artist.name)
                 )
             )
