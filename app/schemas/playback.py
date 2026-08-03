@@ -13,7 +13,7 @@ from fastapi import UploadFile, Form, File
 from datetime import datetime
 from pydantic import BaseModel, RootModel, Field, field_validator
 from app.schemas.common import PlaylistBase, TrackBrief
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 class PlaylistCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=100, description='Playlist title')
@@ -46,6 +46,29 @@ async def playlist_update_with_art_form(
 class TrackToPlaylistRequest(BaseModel):
     track_id: int = Field(..., description='Track id')
     playlist_id: int = Field(..., description='Playlist id')
+
+class MovePlaylistTrackRequest(BaseModel):
+    id: int = Field(..., description='Playlist id')
+    track_id: int = Field(..., description='Track id to move')
+    target_id: int = Field(..., description='Target track id to move before')
+
+# ============ Hit & Fav request schemas ============
+class TrackHitRequest(BaseModel):
+    track_id: int = Field(..., description='Track id')
+
+class ArtistHitRequest(BaseModel):
+    artist_id: int = Field(..., description='Artist id')
+
+class PlaylistHitRequest(BaseModel):
+    playlist_id: int = Field(..., description='Playlist id')
+
+class TrackFavRequest(BaseModel):
+    track_id: int = Field(..., description='Track id')
+    is_favorited: bool = Field(..., description='True to favorite, False to unfavorite')
+
+class ArtistFavRequest(BaseModel):
+    artist_id: int = Field(..., description='Artist id')
+    is_favorited: bool = Field(..., description='True to favorite, False to unfavorite')
 
 class TrackImport(BaseModel):
     path: str = Field(..., description='Track path', min_length=1, max_length=255)
@@ -90,8 +113,11 @@ class PlaylistResponse(PlaylistBase):
     comment: str | None = None
     created_at: datetime
 
+class PlaylistTrackBrief(TrackBrief):
+    position: int = 0
+
 class PlaylistWithTracksResponse(PlaylistResponse):
-    tracks: list[TrackBrief] | None = None
+    tracks: list[PlaylistTrackBrief] | None = None
 
 T = TypeVar('T', bound=datetime)
 class OperationImport(BaseModel, Generic[T]):

@@ -18,7 +18,8 @@ from app.schemas.playback import (
     playlist_create_with_art_form, 
     PlaylistUpdate,
     playlist_update_with_art_form,
-    TrackToPlaylistRequest
+    TrackToPlaylistRequest,
+    MovePlaylistTrackRequest
 )
 from app.services.playback_service import PlaylistService
 from app.services.artwork_service import ArtworkService
@@ -99,4 +100,9 @@ async def add_track_to_playlist(data: TrackToPlaylistRequest, service: PlaylistS
 @router.put('/removetrackfromplaylist', response_model=ResponseModel[SuccessMsgModel])
 async def remove_track_from_playlist(data: TrackToPlaylistRequest, service: PlaylistService = Depends(PlaylistService)):
     await service.remove_track_from_playlist(data.playlist_id, data.track_id)
+    return ResponseModel(data=SuccessMsgModel())
+
+@router.put('/moveplaylisttrack', response_model=ResponseModel[SuccessMsgModel])
+async def move_playlist_track(data: MovePlaylistTrackRequest, service: PlaylistService = Depends(PlaylistService)):
+    await service.move_playlist_track(data.id, data.track_id, data.target_id)
     return ResponseModel(data=SuccessMsgModel())

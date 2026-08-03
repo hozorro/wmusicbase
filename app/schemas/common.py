@@ -49,6 +49,7 @@ class AlbumPrimary(BaseModel):
 
 class AlbumBase(AlbumPrimary):
     cover_art_hash: str | None = None
+    track_count: int = 0
 
 #==== Artist ====
 class ArtistPrimary(BaseModel):
@@ -83,6 +84,7 @@ class GenreBase(BaseModel):
     id: int
     name: str
     color: str
+    track_count: int = 0
 
 #==== Playlist ====
 class PlaylistPrimary(BaseModel):
@@ -93,7 +95,7 @@ class PlaylistPrimary(BaseModel):
     cover_art_hash: str | None = None
 
 class PlaylistBase(PlaylistPrimary):
-    pass
+    track_count: int = 0
 
 #==== Track ====
 class TrackPrimary(BaseModel):

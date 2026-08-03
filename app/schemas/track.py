@@ -15,9 +15,6 @@ from pydantic import model_validator, BaseModel, Field
 from app.models.track import Track
 from .common import TrackBase, TrackBrief, TrackMedium, AlbumBase
 
-class TrackFavRequest(BaseModel):
-    is_favorited: bool = Field(..., title='Is favorited')
-
 class TrackInfoResponse(TrackMedium):
     album: AlbumBase
     hit_count: int
