@@ -10,9 +10,9 @@
 
 
 import aiofiles, requests
-from datetime import datetime, timezone
+from datetime import datetime
 from fastapi import Request, HTTPException
-from sqlalchemy import select, func, desc, nulls_last, delete
+from sqlalchemy import select, func, desc, nulls_last
 from sqlalchemy.orm import selectinload, load_only, joinedload
 from app.core.deps import SettingsDep, DbDep
 from app.core.logger import logger
@@ -226,26 +226,6 @@ class TrackService:
         result = await self.db.execute(stmt)
         tracks = result.scalars().all()
         return tracks
-    
-    async def favorite_track(self, track_id: int, is_favorited: bool) -> datetime | None:
-        '''favorite or unfavorite a track'''
-        favorited_at = None
-        if is_favorited:
-            existing_fav = await self.db.execute(
-                select(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
-            )
-            if existing_fav.scalar_one_or_none():
-                return True  # already favorited
-            new_fav = TrackFav(user_id=self.current_user_id, track_id=track_id)
-            favorited_at = datetime.now(timezone.utc)
-            new_fav.favorited_at = favorited_at
-            self.db.add(new_fav)
-        else:
-            await self.db.execute(
-                delete(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
-            )
-        await self.db.commit()
-        return favorited_at
     
     async def _get_album_tracks(self, album_id: int) -> list[Track]:
         '''get album tracks'''

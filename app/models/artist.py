@@ -11,7 +11,7 @@
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from . import Album, Track, ArtistFav
+    from . import Album, Track, ArtistFav, ArtistHit
 
 from sqlalchemy import String, UniqueConstraint, Index, JSON, CheckConstraint
 from sqlalchemy.orm import relationship, Mapped, mapped_column
@@ -33,6 +33,7 @@ class Artist(Base, DateTimeMixin):
     albums_as_main: Mapped[list['Album']] = relationship('Album', back_populates='album_artist')
     tracks: Mapped[list['Track']] = relationship(secondary='track_artists', back_populates='artists')
     favorites: Mapped[list['ArtistFav']] = relationship('ArtistFav', back_populates='artist', cascade='all, delete-orphan')
+    play_hits: Mapped[list['ArtistHit']] = relationship('ArtistHit', back_populates='artist', cascade='all, delete-orphan')
 
     __table_args__ = (
         UniqueConstraint('name', name='uq_artist_name'),

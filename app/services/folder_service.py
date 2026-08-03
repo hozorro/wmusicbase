@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload, joinedload, load_only
 from app.core.deps import SettingsDep, DbDep
-from app.models import Folder, Track, Album, SyncMeta
+from app.models import Folder, Track, Album, Artist, SyncMeta
 from app.schemas.sysinfo import ScanFolder
 
 class FolderService:
@@ -23,15 +23,16 @@ class FolderService:
         self.settings = settings
 
     async def get_folder(self, folder_id: int) -> Folder | None:
-        '''get folder info, including sub_folder and tracks'''
+        '''get folder info, including ancestors, subfolders(with counts) and tracks'''
         stmt = (
             select(Folder)
             .where(Folder.id == folder_id)
             .options(
-                selectinload(Folder.children).load_only(Folder.id, Folder.path),
+                selectinload(Folder.children).load_only(Folder.id, Folder.path, Folder.parent_id),
                 selectinload(Folder.tracks).options(
                     load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
                     joinedload(Track.album).load_only(Album.id, Album.title),
+                    selectinload(Track.artists).load_only(Artist.name),
                 ),
             )   
         )
@@ -39,6 +40,54 @@ class FolderService:
         folder = result.scalars().first()
         if not folder: 
             return None
+
+        # build ancestor chain (root -> ... -> parent, excluding self)
+        ancestors = []
+        current_parent_id = folder.parent_id
+        while current_parent_id is not None:
+            anc_result = await self.db.execute(
+                select(Folder.id, Folder.path).where(Folder.id == current_parent_id)
+            )
+            row = anc_result.one_or_none()
+            if row is None:
+                break
+            ancestors.append(row)
+            # get parent_id of this ancestor
+            pid_result = await self.db.execute(
+                select(Folder.parent_id).where(Folder.id == row.id)
+            )
+            current_parent_id = pid_result.scalar_one_or_none()
+        ancestors.reverse()
+        folder.ancestors = ancestors
+
+        # compute subfolder_count and track_count for each child
+        child_ids = [c.id for c in folder.children]
+        if child_ids:
+            subfolder_counts = dict(
+                (await self.db.execute(
+                    select(Folder.parent_id, func.count(Folder.id))
+                    .where(Folder.parent_id.in_(child_ids))
+                    .group_by(Folder.parent_id)
+                )).all()
+            )
+            track_counts = dict(
+                (await self.db.execute(
+                    select(Track.folder_id, func.count(Track.id))
+                    .where(Track.folder_id.in_(child_ids), Track.is_deleted == False)
+                    .group_by(Track.folder_id)
+                )).all()
+            )
+        else:
+            subfolder_counts = {}
+            track_counts = {}
+
+        subfolders = []
+        for child in folder.children:
+            child.subfolder_count = subfolder_counts.get(child.id, 0)
+            child.track_count = track_counts.get(child.id, 0)
+            subfolders.append(child)
+        folder.subfolders = subfolders
+
         return folder
 
     async def get_scan_folder(self) -> ScanFolder:

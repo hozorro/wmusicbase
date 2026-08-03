@@ -12,7 +12,7 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from app.schemas.common import ResponseModel, SuccessMsgModel
-from app.schemas.track import TrackInfoResponse, TrackMoreInfoResponse, TrackFavRequest
+from app.schemas.track import TrackInfoResponse, TrackMoreInfoResponse
 from app.schemas.common import TrackBrief
 from app.services.track_service import TrackService
 
@@ -61,11 +61,6 @@ async def get_latest_added_tracks(num: int | None = 12, service: TrackService = 
 async def get_most_played_tracks(num: int | None = 12, service: TrackService = Depends(TrackService)):
     tracks = await service.get_most_played_tracks(num)
     return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
-
-@router.put('/favorite/{track_id:int}', response_model=ResponseModel[datetime | None])
-async def favorite_track(track_id: int, fav_data: TrackFavRequest, service: TrackService = Depends(TrackService)):
-    result = await service.favorite_track(track_id, fav_data.is_favorited)
-    return ResponseModel(data=result)
 
 @router.get('/collection/{collection_type}/{collection_id:int}', response_model=ResponseModel[list[TrackBrief]])
 async def get_collection_tracks(collection_type: str, collection_id: int, service: TrackService = Depends(TrackService)):

@@ -45,9 +45,19 @@ class ArtistService:
         return artists
     
     async def _get_artist_albums_separated(self, artist_id: int) -> tuple[list[Album], list[Album]]:
+        track_count_subq = (
+            select(
+                Track.album_id,
+                func.count(Track.id).label('track_count')
+            )
+            .where(Track.is_deleted == False)
+            .group_by(Track.album_id)
+            .subquery()
+        )
         subq = (
             select(
                 Album,
+                func.coalesce(track_count_subq.c.track_count, 0).label('track_count'),
                 case(
                     (Album.album_artist_id == artist_id, literal_column("'main'")),
                     else_=literal_column("'track'")
@@ -56,6 +66,7 @@ class ArtistService:
             .select_from(Album)
             .outerjoin(Track, Track.album_id == Album.id)
             .outerjoin(track_artists, Track.id == track_artists.c.track_id)
+            .outerjoin(track_count_subq, Album.id == track_count_subq.c.album_id)
             .where(
                 (Album.album_artist_id == artist_id) |
                 (track_artists.c.artist_id == artist_id)
@@ -68,6 +79,7 @@ class ArtistService:
         result = await self.db.execute(select(subq))
         for row in result:
             album = Album(id=row.id, title=row.title, cover_art_hash=row.cover_art_hash)
+            album.track_count = row.track_count
             if row.album_type == 'main':
                 main_albums.append(album)
             else:

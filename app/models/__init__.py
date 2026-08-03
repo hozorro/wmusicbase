@@ -43,7 +43,7 @@ from .artist import Artist
 from .album import Album
 from .genre import Genre
 from .user import User, UserToken
-from .playback import Playlist, TrackHit, TrackFav, ArtistFav, PlaylistTrack, PlaylistHit, SyncMeta
+from .playback import Playlist, TrackHit, TrackFav, ArtistFav, ArtistHit, PlaylistTrack, PlaylistHit, SyncMeta
 
 __all__ = [
     "Folder",
@@ -59,6 +59,7 @@ __all__ = [
     "TrackHit",
     "TrackFav",
     "ArtistFav",
+    "ArtistHit",
     "PlaylistTrack",
     "PlaylistHit",
     "SyncMeta",

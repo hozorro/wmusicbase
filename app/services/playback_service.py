@@ -11,6 +11,7 @@
 
 import json
 from pathlib import Path
+from datetime import datetime
 from fastapi import Request, UploadFile
 from sqlalchemy import select, update, delete, insert, func, desc
 from sqlalchemy.orm import selectinload, joinedload, load_only
@@ -18,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
-from app.models import Track, Artist, Album, Playlist, PlaylistTrack, PlaylistHit, TrackHit, TrackFav, User
+from app.models import Track, Artist, Album, Playlist, PlaylistTrack, PlaylistHit, TrackHit, TrackFav, ArtistFav, ArtistHit, User
 from app.services.user_service import UserService
 from app.services.sync import Syncer
 from app.schemas.playback import PlaylistImportRoot, HitImportRoot, FavImportRoot
@@ -200,18 +201,34 @@ class PlaylistService:
         return playlists
     
     async def get_user_playlists(self) -> list[dict]:
-        '''get user playlists'''
-        playlists = []
-        result = await self.db.execute(
-            select(Playlist)
+        '''get user playlists with track count'''
+        track_count_subq = (
+            select(
+                PlaylistTrack.playlist_id,
+                func.count(PlaylistTrack.track_id).label('track_count')
+            )
+            .group_by(PlaylistTrack.playlist_id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                Playlist,
+                func.coalesce(track_count_subq.c.track_count, 0).label('track_count')
+            )
+            .outerjoin(track_count_subq, Playlist.id == track_count_subq.c.playlist_id)
             .where(Playlist.user_id == self.current_user_id)
             .order_by(Playlist.updated_at.desc())
         )
-        playlists = result.scalars().all()
+        result = await self.db.execute(stmt)
+        playlists = []
+        for row in result:
+            playlist = row[0]
+            playlist.track_count = row.track_count
+            playlists.append(playlist)
         return playlists
     
     async def get_playlist_info(self, playlist_id: int) -> Playlist | None:
-        '''get playlist info'''
+        '''get playlist info with track positions'''
         stmt = (
             select(Playlist)
             .where(Playlist.id == playlist_id)
@@ -229,6 +246,16 @@ class PlaylistService:
         playlist = result.scalar_one_or_none()
         if playlist is None: 
             return None
+
+        # attach position from PlaylistTrack to each track
+        pos_result = await self.db.execute(
+            select(PlaylistTrack.track_id, PlaylistTrack.position)
+            .where(PlaylistTrack.playlist_id == playlist_id)
+        )
+        pos_map = {row.track_id: row.position for row in pos_result}
+        for track in playlist.tracks:
+            track.position = pos_map.get(track.id, 0)
+
         return playlist
     
     async def update_playlist(
@@ -306,7 +333,100 @@ class PlaylistService:
                 )
         await self.db.commit()
 
+    async def move_playlist_track(self, playlist_id: int, track_id: int, target_id: int) -> None:
+        '''move track to before target track in playlist'''
+        result = await self.db.execute(
+            select(PlaylistTrack.track_id)
+            .where(PlaylistTrack.playlist_id == playlist_id)
+            .order_by(PlaylistTrack.position)
+        )
+        track_ids = [row[0] for row in result.all()]
+
+        if track_id not in track_ids or target_id not in track_ids:
+            raise BusinessException(code=10404, msg='track not found in playlist')
+
+        track_ids.remove(track_id)
+        target_index = track_ids.index(target_id)
+        track_ids.insert(target_index, track_id)
+
+        for new_pos, tid in enumerate(track_ids):
+            await self.db.execute(
+                update(PlaylistTrack)
+                .where(
+                    PlaylistTrack.playlist_id == playlist_id,
+                    PlaylistTrack.track_id == tid
+                )
+                .values(position=new_pos)
+            )
+        await self.db.commit()
+
     # endregion frontend use
+
+class PlayBackService:
+    def __init__(self, db: DbDep, request: Request):
+        self.db = db
+        self.current_user_id = request.state.user_id
+
+    # region hit & fav
+    async def add_track_hit(self, track_id: int):
+        '''record a track play hit'''
+        hit = TrackHit(track_id=track_id, user_id=self.current_user_id)
+        self.db.add(hit)
+        await self.db.commit()
+
+    async def add_artist_hit(self, artist_id: int):
+        '''record an artist play hit'''
+        hit = ArtistHit(artist_id=artist_id, user_id=self.current_user_id)
+        self.db.add(hit)
+        await self.db.commit()
+
+    async def add_playlist_hit(self, playlist_id: int):
+        '''record a playlist play hit'''
+        hit = PlaylistHit(playlist_id=playlist_id, user_id=self.current_user_id)
+        self.db.add(hit)
+        await self.db.commit()
+
+    async def favorite_track(self, track_id: int, is_favorited: bool) -> datetime | None:
+        '''favorite or unfavorite a track'''
+        favorited_at = None
+        if is_favorited:
+            existing_fav = await self.db.execute(
+                select(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
+            )
+            if existing_fav.scalar_one_or_none():
+                return None  # already favorited
+            new_fav = TrackFav(user_id=self.current_user_id, track_id=track_id)
+            self.db.add(new_fav)
+            await self.db.flush()
+            favorited_at = new_fav.favorited_at
+        else:
+            await self.db.execute(
+                delete(TrackFav).where(TrackFav.user_id == self.current_user_id, TrackFav.track_id == track_id)
+            )
+        await self.db.commit()
+        return favorited_at
+
+    async def favorite_artist(self, artist_id: int, is_favorited: bool) -> datetime | None:
+        '''favorite or unfavorite an artist'''
+        favorited_at = None
+        if is_favorited:
+            existing_fav = await self.db.execute(
+                select(ArtistFav).where(ArtistFav.user_id == self.current_user_id, ArtistFav.artist_id == artist_id)
+            )
+            if existing_fav.scalar_one_or_none():
+                return None  # already favorited
+            new_fav = ArtistFav(user_id=self.current_user_id, artist_id=artist_id)
+            self.db.add(new_fav)
+            await self.db.flush()
+            favorited_at = new_fav.favorited_at
+        else:
+            await self.db.execute(
+                delete(ArtistFav).where(ArtistFav.user_id == self.current_user_id, ArtistFav.artist_id == artist_id)
+            )
+        await self.db.commit()
+        return favorited_at
+
+    # endregion hit & fav
 
 class PlayDataService:
     def __init__(self, db: DbDep):

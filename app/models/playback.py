@@ -59,6 +59,22 @@ class ArtistFav(Base):
 
     __table_args__ = (UniqueConstraint('user_id', 'artist_id'),)
 
+class ArtistHit(Base):
+    __tablename__ = 'artist_hits'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    artist_id: Mapped[int] = mapped_column(ForeignKey('artists.id', ondelete='CASCADE'))
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'))
+    played_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=func.now(), index=True)
+
+    artist: Mapped['Artist'] = relationship('Artist', back_populates='play_hits')
+    user: Mapped['User'] = relationship('User', back_populates='artist_hits')
+
+    __table_args__ = (
+        Index('ix_artist_hits_artist_id', 'artist_id'),
+        Index('ix_artist_hits_user_played_at', 'user_id', 'played_at'),
+    )
+
 class Playlist(Base, DateTimeMixin):
     __tablename__ = 'playlists'
 

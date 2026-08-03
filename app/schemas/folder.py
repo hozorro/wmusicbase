@@ -11,8 +11,12 @@
 
 from .common import FolderBase, TrackBrief
 
-class FolderResponse(FolderBase):  
-    parent_id: int | None 
-    children: list[FolderBase]
-    tracks: list[TrackBrief]
+class FolderBrief(FolderBase):
+    subfolder_count: int = 0
+    track_count: int = 0
+
+class FolderResponse(FolderBase):
+    ancestors: list[FolderBase] = []
+    subfolders: list[FolderBrief] = []
+    tracks: list[TrackBrief] = []
     
