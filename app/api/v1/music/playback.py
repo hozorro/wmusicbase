@@ -20,6 +20,7 @@ from app.schemas.playback import (
     PlaylistUpdate,
     playlist_update_with_art_form,
     TrackToPlaylistRequest,
+    PlaylistDeleteRequest,
     MovePlaylistTrackRequest,
     TrackHitRequest,
     ArtistHitRequest,
@@ -92,6 +93,11 @@ async def edit_playlist(
     
     return ResponseModel(data=PlaylistResponse.model_validate(playlist))
 
+@router.delete('/deleteplaylist', response_model=ResponseModel[SuccessMsgModel])
+async def delete_playlist(data: PlaylistDeleteRequest, service: PlaylistService = Depends(PlaylistService)):
+    await service.delete_playlist(data.id)
+    return ResponseModel(data=SuccessMsgModel())
+
 @router.post('/addplaylistsimple', response_model=ResponseModel[SuccessMsgModel])
 async def add_playlist_simple(
     data: PlaylistCreate,
@@ -112,7 +118,7 @@ async def remove_track_from_playlist(data: TrackToPlaylistRequest, service: Play
 
 @router.put('/moveplaylisttrack', response_model=ResponseModel[SuccessMsgModel])
 async def move_playlist_track(data: MovePlaylistTrackRequest, service: PlaylistService = Depends(PlaylistService)):
-    await service.move_playlist_track(data.id, data.track_id, data.target_id)
+    await service.move_playlist_track(data.id, data.track_id, data.new_position)
     return ResponseModel(data=SuccessMsgModel())
 
 # ============ Hit (play record) ============

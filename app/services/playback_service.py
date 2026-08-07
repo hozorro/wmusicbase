@@ -191,7 +191,7 @@ class PlaylistService:
         stmt = (
             select(Playlist.id, Playlist.title, Playlist.cover_art_hash, func.count(PlaylistHit.id).label('hit_count') )
             .outerjoin(PlaylistHit, PlaylistHit.playlist_id == Playlist.id)
-            .where(Playlist.user_id == self.current_user_id)
+            .where(Playlist.user_id == self.current_user_id, Playlist.is_deleted == False)
             .group_by(Playlist.id)
             .order_by(desc('hit_count'), Playlist.updated_at.desc())
             .limit(limit)
@@ -216,7 +216,7 @@ class PlaylistService:
                 func.coalesce(track_count_subq.c.track_count, 0).label('track_count')
             )
             .outerjoin(track_count_subq, Playlist.id == track_count_subq.c.playlist_id)
-            .where(Playlist.user_id == self.current_user_id)
+            .where(Playlist.user_id == self.current_user_id, Playlist.is_deleted == False)
             .order_by(Playlist.updated_at.desc())
         )
         result = await self.db.execute(stmt)
@@ -237,8 +237,8 @@ class PlaylistService:
                 selectinload(Playlist.tracks)
                 .options(
                     load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                    joinedload(Track.album).load_only(Album.title),
-                    selectinload(Track.artists).load_only(Artist.name)
+                    joinedload(Track.album).load_only(Album.id, Album.title),
+                    selectinload(Track.artists).load_only(Artist.id, Artist.name)
                 )
             )
         )
@@ -275,6 +275,15 @@ class PlaylistService:
         await self.db.commit()
         await self.db.refresh(playlist)
         return playlist
+    
+    async def delete_playlist(self, playlist_id: int) -> None:
+        '''soft delete playlist (mark is_deleted)'''
+        playlist = await self.db.get(Playlist, playlist_id)
+        if playlist is None or playlist.user_id != self.current_user_id:
+            raise BusinessException(code=10404, msg='playlist not found')
+        playlist.is_deleted = True
+        self.db.add(playlist)
+        await self.db.commit()
     
     async def add_track_to_playlist(self, playlist_id: int, track_id: int):
         '''add track to playlist'''
@@ -333,8 +342,8 @@ class PlaylistService:
                 )
         await self.db.commit()
 
-    async def move_playlist_track(self, playlist_id: int, track_id: int, target_id: int) -> None:
-        '''move track to before target track in playlist'''
+    async def move_playlist_track(self, playlist_id: int, track_id: int, new_position: int) -> None:
+        '''move track to target position in playlist'''
         result = await self.db.execute(
             select(PlaylistTrack.track_id)
             .where(PlaylistTrack.playlist_id == playlist_id)
@@ -342,12 +351,13 @@ class PlaylistService:
         )
         track_ids = [row[0] for row in result.all()]
 
-        if track_id not in track_ids or target_id not in track_ids:
+        if track_id not in track_ids:
             raise BusinessException(code=10404, msg='track not found in playlist')
+        if new_position < 0 or new_position >= len(track_ids):
+            raise BusinessException(code=10400, msg='invalid position')
 
         track_ids.remove(track_id)
-        target_index = track_ids.index(target_id)
-        track_ids.insert(target_index, track_id)
+        track_ids.insert(new_position, track_id)
 
         for new_pos, tid in enumerate(track_ids):
             await self.db.execute(

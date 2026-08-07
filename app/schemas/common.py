@@ -109,27 +109,8 @@ class TrackBase(TrackPrimary):
 
 class TrackBrief(TrackBase):
     duration: float
-    album: str
-    artists: list[str]  # artist_names list
-
-    @field_validator('album', mode='before')
-    @classmethod
-    def extract_album_title(cls, v: Any) -> str:
-        if v is None:
-            return ''
-        if hasattr(v, 'title'):
-            return v.title
-        return str(v)
-
-    @field_validator('artists', mode='before')
-    @classmethod
-    def extract_names(cls, v: Any) -> list[str]:
-        if isinstance(v, list):
-            return [
-                artist.name if isinstance(artist, Artist) else artist['name']
-                for artist in v
-            ]
-        return []
+    album: AlbumPrimary
+    artists: list[ArtistPrimary]
 
 class TrackMedium(TrackBase):
     duration: float

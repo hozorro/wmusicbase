@@ -117,8 +117,8 @@ class TrackService:
             select(Track)
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
             .where(Track.is_deleted == False)
             .order_by(func.random())
@@ -133,8 +133,8 @@ class TrackService:
         stmt = (
             select(Track).options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
             .join(track_artists, Track.id == track_artists.c.track_id)
             .where(track_artists.c.artist_id == artist_id, Track.is_deleted == False)
@@ -150,8 +150,8 @@ class TrackService:
         stmt = (
             select(Track).options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
             .join(track_genres, Track.id == track_genres.c.track_id)
             .where(Track.is_deleted == False, track_genres.c.genre_id == genre_id)
@@ -172,13 +172,25 @@ class TrackService:
             .limit(limit)
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         result = await self.db.execute(stmt)
         tracks = result.scalars().all()
         return tracks
+
+    async def get_favorite_ids(self, limit: int = 100) -> list[int]:
+        '''get user favorite track ids'''
+        stmt = (
+            select(TrackFav.track_id)
+            .where(TrackFav.user_id == self.current_user_id, TrackFav.favorited_at != None)
+            .order_by(TrackFav.favorited_at.desc())
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+        track_ids = result.scalars().all()
+        return track_ids
     
     async def get_most_played_tracks(self, limit: int | None = 12) -> list[Track]:
         '''get user most played tracks'''
@@ -201,8 +213,8 @@ class TrackService:
             .limit(limit)
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         
@@ -219,8 +231,8 @@ class TrackService:
             .limit(num)
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         result = await self.db.execute(stmt)
@@ -236,8 +248,8 @@ class TrackService:
             .limit(100) # limit 100 to avoid too many tracks
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         tracks = result.scalars().all()
@@ -253,8 +265,8 @@ class TrackService:
             .limit(100) # limit 100 to avoid too many tracks
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         tracks = result.scalars().all()
@@ -270,8 +282,8 @@ class TrackService:
             .limit(100) # limit 100 to avoid too many tracks
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         tracks = result.scalars().all()
@@ -287,8 +299,8 @@ class TrackService:
             .limit(100) # limit 100 to avoid too many tracks
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         tracks = result.scalars().all()
@@ -303,8 +315,8 @@ class TrackService:
             .limit(100)
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         tracks = result.scalars().all()
