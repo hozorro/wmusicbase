@@ -116,8 +116,8 @@ class ArtistService:
             .limit(top_count)
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
         )
         result = await self.db.execute(main_stmt)

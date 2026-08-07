@@ -11,7 +11,7 @@
 
 from fastapi import APIRouter
 from app.core.deps import COMMON_DEPS
-from . import album, artist, folder, genre, track, playback, transfer, search
+from . import album, artist, folder, genre, track, playback, sync, search
 
 music_router = APIRouter(dependencies=COMMON_DEPS)
 
@@ -21,5 +21,5 @@ music_router.include_router(folder.router, prefix='/folder', tags=['music_folder
 music_router.include_router(genre.router, prefix='/genre', tags=['music_genres'])
 music_router.include_router(track.router, prefix='/track', tags=['music_tracks'])
 music_router.include_router(playback.router, prefix='/playback', tags=['music_playback'])
-music_router.include_router(transfer.router, prefix='/transfer', tags=['music_transfer'])
+music_router.include_router(sync.router, prefix='/sync', tags=['music_sync'])
 music_router.include_router(search.router, prefix='/search', tags=['music_search'])

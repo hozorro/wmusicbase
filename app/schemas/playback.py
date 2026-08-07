@@ -47,10 +47,13 @@ class TrackToPlaylistRequest(BaseModel):
     track_id: int = Field(..., description='Track id')
     playlist_id: int = Field(..., description='Playlist id')
 
+class PlaylistDeleteRequest(BaseModel):
+    id: int = Field(..., description='Playlist id')
+
 class MovePlaylistTrackRequest(BaseModel):
     id: int = Field(..., description='Playlist id')
     track_id: int = Field(..., description='Track id to move')
-    target_id: int = Field(..., description='Target track id to move before')
+    new_position: int = Field(..., ge=0, description='Target position in playlist (0-based)')
 
 # ============ Hit & Fav request schemas ============
 class TrackHitRequest(BaseModel):

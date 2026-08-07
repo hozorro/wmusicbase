@@ -32,7 +32,7 @@ class FolderService:
                 selectinload(Folder.tracks).options(
                     load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
                     joinedload(Track.album).load_only(Album.id, Album.title),
-                    selectinload(Track.artists).load_only(Artist.name),
+                    selectinload(Track.artists).load_only(Artist.id, Artist.name),
                 ),
             )   
         )

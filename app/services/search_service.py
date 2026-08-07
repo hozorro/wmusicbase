@@ -71,8 +71,8 @@ class SearchService:
             .where(Track.title.ilike(pattern), Track.is_deleted == False)
             .options(
                 load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
-                selectinload(Track.artists).load_only(Artist.name),
-                joinedload(Track.album).load_only(Album.title),
+                selectinload(Track.artists).load_only(Artist.id, Artist.name),
+                joinedload(Track.album).load_only(Album.id, Album.title),
             )
             .order_by(Track.title)
             .limit(limit)
