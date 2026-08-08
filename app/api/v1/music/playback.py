@@ -123,17 +123,17 @@ async def move_playlist_track(data: MovePlaylistTrackRequest, service: PlaylistS
 
 # ============ Hit (play record) ============
 
-@router.post('/updatetrackhit', response_model=ResponseModel[SuccessMsgModel])
+@router.put('/updatetrackhit', response_model=ResponseModel[SuccessMsgModel])
 async def update_track_hit(data: TrackHitRequest, service: PlayBackService = Depends(PlayBackService)):
     await service.add_track_hit(data.track_id)
     return ResponseModel(data=SuccessMsgModel())
 
-@router.post('/updateartisthit', response_model=ResponseModel[SuccessMsgModel])
+@router.put('/updateartisthit', response_model=ResponseModel[SuccessMsgModel])
 async def update_artist_hit(data: ArtistHitRequest, service: PlayBackService = Depends(PlayBackService)):
     await service.add_artist_hit(data.artist_id)
     return ResponseModel(data=SuccessMsgModel())
 
-@router.post('/updateplaylisthit', response_model=ResponseModel[SuccessMsgModel])
+@router.put('/updateplaylisthit', response_model=ResponseModel[SuccessMsgModel])
 async def update_playlist_hit(data: PlaylistHitRequest, service: PlayBackService = Depends(PlayBackService)):
     await service.add_playlist_hit(data.playlist_id)
     return ResponseModel(data=SuccessMsgModel())
