@@ -20,8 +20,6 @@ from app.models import Genre, Artist, Album, Track, Folder, track_artists, track
 from app.schemas.filething import ParsedMeta
 from app.utils.color import generate_unique_light_color
 from app.utils.pinyin import get_artist_sort_fields
-from app.utils.metadata import extract_cover_art_hash
-from app.services.artwork_service import ArtworkService
 
 class MusicFileProcessor:
     def __init__(self, root_path: Path, db: AsyncSession):
@@ -170,13 +168,16 @@ class MusicFileProcessor:
         self,
         track: Track,
         meta: ParsedMeta,
-        cover_art_hash: str | None,
         folder: Folder,
         album: Album | None,
         artists: list[Artist],
         genres: list[Genre]
     ) -> bool:
-        '''update the existed track's metadata and relations'''
+        '''
+        update the existed track's metadata and relations.
+        note: cover_art_hash is NOT touched here, it is managed by artwork
+        generation/sync to keep consistent with the static artwork file.
+        '''
         try:
             # 1. update basic info
             track.title = meta.title
@@ -186,7 +187,6 @@ class MusicFileProcessor:
             track.year = meta.year
             track.acoustid_id = meta.acoustid_id
             track.mb_trackid = meta.mb_trackid
-            track.cover_art_hash = cover_art_hash
             track.folder = folder
             track.album = album
             track.is_deleted = False # if the track is deleted, set it to False as soft delete
@@ -213,7 +213,11 @@ class MusicFileProcessor:
             raise e
 
     async def process_single_file(self, meta: ParsedMeta, is_incremental_scan: bool = False) -> bool:
-        """process single file, return True if success"""
+        """
+        process single file, return True if success.
+        is_incremental do not compare file modifying, always update metadata
+        the only use of is_incremental is to preserve the id of entities.
+        """
         # ===== infer album_artist_name =====
         album_artist_name = None
         mb_albumartistid = None
@@ -261,9 +265,11 @@ class MusicFileProcessor:
             album = await self.get_or_create_album(album_name, meta.year, meta.mb_albumid, album_artist)
         # 4. get/create Folder
         folder = await self.get_or_create_folder(Path(meta.path).parent, self.root_path)
-        # 5. comput cover art hash
-        cover_art_hash = extract_cover_art_hash(Path(meta.path))
-        # 6. create/update Track
+        # 5. create/update Track
+        # note: do not compute/write cover_art_hash here. it must be generated
+        # together with the static artwork file (by artwork generation or
+        # watcher artwork sync), otherwise the frontend would show a broken
+        # cover (hash exists but static file missing).
         rel_path = str(Path(meta.path).relative_to(self.root_path))
         if is_incremental_scan:
             # for incremental scan, only update existed track, won't create new track
@@ -271,10 +277,7 @@ class MusicFileProcessor:
             result = await self.db.execute(select(Track).where(Track.path == rel_path))
             track = result.scalar_one_or_none()
             if track:
-                if cover_art_hash != track.cover_art_hash:
-                    service = ArtworkService(self.db)
-                    service.invalidate_artwork_cache(track.id, 'track')
-                await self.update_track(track, meta, cover_art_hash, folder, album, artists, genres)
+                await self.update_track(track, meta, folder, album, artists, genres)
                 return True
         
         self.pending_tracks.append({
@@ -285,7 +288,7 @@ class MusicFileProcessor:
             'year': meta.year,
             'acoustid_id': meta.acoustid_id,
             'mb_trackid': meta.mb_trackid,
-            'cover_art_hash': cover_art_hash,
+            'cover_art_hash': None,
             'path': rel_path,
             'folder_id': folder.id,
             'album_id': album.id if album else None,

@@ -26,6 +26,7 @@ from app.core.config import settings
 from app.core.state import system_state
 from app.core.db import AsyncSessionLocal
 from app.services.processor import MusicFileProcessor
+from app.services.artwork_service import ArtworkService
 from app.models.track import Track
 from app.utils.metadata import parse_metadata, easy_metadata
 from app.schemas.filething import ParsedMeta
@@ -107,6 +108,7 @@ class WatcherManager:
 
         async with AsyncSessionLocal() as db:
             processor = MusicFileProcessor(self.root_path, db)
+            artwork_service = ArtworkService(db, settings)
 
             while self.is_running:
                 try:
@@ -122,10 +124,14 @@ class WatcherManager:
                             else:
                                 meta = easy_metadata(path)
                             await processor.process_single_file(ParsedMeta.model_validate({"path": path, **meta}), True)
-                            logger.info(f'✅File processed: {relative_path(path)}')
-
-                            if len(processor.pending_tracks) >= 50:
+                            # commit immediately to get the track id of new tracks
+                            if processor.pending_tracks:
                                 await processor.commit_pending_tracks()
+                            # sync artworks: track is always regenerated, album/artist
+                            # are generated only when the static file is missing
+                            await artwork_service.sync_artworks_after_track_change(relative_path(path))
+                            await db.commit()
+                            logger.info(f'✅File processed: {relative_path(path)}')
                     except Exception as e:
                         logger.error(f'❌Error processing file: {relative_path(path)}: {str(e)}')
                     finally:
