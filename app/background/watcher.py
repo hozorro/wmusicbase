@@ -25,6 +25,7 @@ from app.core.db import AsyncSessionLocal
 from app.core.config import settings
 from app.core.logger import logger, init_logging
 from app.services.processor import MusicFileProcessor
+from app.services.artwork_service import ArtworkService
 from app.models.track import Track
 from app.utils.metadata import easy_metadata, parse_metadata
 from app.schemas.filething import ParsedMeta
@@ -110,7 +111,7 @@ class MusicLibraryWatcher:
         logger.info('Consumer worker started.')
         async with AsyncSessionLocal() as db:
             processor = MusicFileProcessor(Path(settings.MUSIC_LIBRARY_PATH), db)
-            batch_size = 10
+            artwork_service = ArtworkService(db, settings)
             while True:
                 try:
                     file_path, event_type = await asyncio.wait_for(self.queue.get(), timeout=5.0)
@@ -130,10 +131,14 @@ class MusicLibraryWatcher:
                             else:
                                 meta = easy_metadata(file_path)
                             await processor.process_single_file(ParsedMeta.model_validate({"path": file_path, **meta}), True)
-                            logger.info(f'✅File processed: {relative_path(file_path)}')
-
-                            if len(processor.pending_tracks) > batch_size:
+                            # commit immediately to get the track id of new tracks
+                            if len(processor.pending_tracks) > 0:
                                 await processor.commit_pending_tracks()
+                            # sync artworks: track is always regenerated, album/artist
+                            # are generated only when the static file is missing
+                            await artwork_service.sync_artworks_after_track_change(relative_path(file_path))
+                            await db.commit()
+                            logger.info(f'✅File processed: {relative_path(file_path)}')
                         except Exception as e:
                             logger.error(f'❌Commit pending tracks error: {str(e)}', exc_info=True)
                         finally:

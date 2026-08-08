@@ -9,7 +9,6 @@
 '''
 
 
-import hashlib
 from sqlalchemy import select
 from app.models import Artist, Album, Track, Playlist
 from app.services.artwork_service import ArtworkService
@@ -18,6 +17,10 @@ from app.core.logger import logger
 
 # batch commit interval
 _BATCH_COMMIT_SIZE = 100
+
+# default phase order. track MUST run before album/artist:
+# their fallbacks depend on track artworks and track.cover_art_hash
+_DEFAULT_ART_TYPES = ['track', 'album', 'artist', 'playlist']
 
 
 class ArtworkGenerator:
@@ -31,7 +34,7 @@ class ArtworkGenerator:
                        None means all types
         '''
         self.service = service
-        self.art_types = art_types or ['artist', 'album', 'track', 'playlist']
+        self.art_types = art_types or _DEFAULT_ART_TYPES
 
     async def run(self):
         '''Run the artwork generation process'''
@@ -187,7 +190,7 @@ class ArtworkGenerator:
 
                 # compute hash and update entity if hash_attr is specified
                 if hash_attr and cache_path.exists():
-                    file_hash = self._compute_file_hash(cache_path)
+                    file_hash = ArtworkService.compute_file_hash(cache_path)
                     current_hash = getattr(item, hash_attr, None)
                     if file_hash != current_hash:
                         setattr(item, hash_attr, file_hash)
@@ -208,12 +211,3 @@ class ArtworkGenerator:
         # commit remaining changes
         if pending_count > 0:
             await self.service.db.commit()
-
-    @staticmethod
-    def _compute_file_hash(file_path) -> str:
-        '''compute SHA1 hash of a file'''
-        h = hashlib.sha1()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), b''):
-                h.update(chunk)
-        return h.hexdigest()
