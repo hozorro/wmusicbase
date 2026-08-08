@@ -57,6 +57,7 @@ class PlaylistService:
     
     async def create_playlist_and_bind_tracks(self, title: str, comment: str | None, tracks: list[int] | None = None) -> dict:
         '''create playlist, and bind tracks if needed'''
+        tracks = tracks or []
         try:
             # 1. create playlist
             playlist = Playlist(
@@ -69,7 +70,7 @@ class PlaylistService:
 
             # 2. bind tracks
             missing = []
-            if tracks and len(tracks) > 0:
+            if tracks:
                 if isinstance(tracks[0], str):  # path
                     tracks, missing = await self._get_tracks_by_paths(tracks)
                     playlist_tracks = [
