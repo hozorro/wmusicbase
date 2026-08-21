@@ -128,6 +128,11 @@ async def update_track_hit(data: TrackHitRequest, service: PlayBackService = Dep
     await service.add_track_hit(data.track_id)
     return ResponseModel(data=SuccessMsgModel())
 
+@router.get('/gettrackhits/{track_id}', response_model=ResponseModel[list[datetime]])
+async def get_track_hits(track_id: int, service: PlayBackService = Depends(PlayBackService)):
+    hits = await service.get_track_hits(track_id)
+    return ResponseModel(data=hits)
+
 @router.put('/updateartisthit', response_model=ResponseModel[SuccessMsgModel])
 async def update_artist_hit(data: ArtistHitRequest, service: PlayBackService = Depends(PlayBackService)):
     await service.add_artist_hit(data.artist_id)

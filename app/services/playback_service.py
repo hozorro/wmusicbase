@@ -385,6 +385,15 @@ class PlayBackService:
         self.db.add(hit)
         await self.db.commit()
 
+    async def get_track_hits(self, track_id: int) -> list[datetime]:
+        '''get all play hit times of track for current user, oldest first'''
+        result = await self.db.execute(
+            select(TrackHit.played_at)
+            .where(TrackHit.track_id == track_id, TrackHit.user_id == self.current_user_id)
+            .order_by(TrackHit.played_at.asc())
+        )
+        return [row[0] for row in result.all()]
+
     async def add_artist_hit(self, artist_id: int):
         '''record an artist play hit'''
         hit = ArtistHit(artist_id=artist_id, user_id=self.current_user_id)
