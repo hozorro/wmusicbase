@@ -286,14 +286,19 @@ class PlaylistService:
         self.db.add(playlist)
         await self.db.commit()
     
-    async def add_track_to_playlist(self, playlist_id: int, track_id: int):
-        '''add track to playlist'''
-        # playlist = await self.db.get(Playlist, playlist_id)
-        # if playlist is None or playlist.user_id != self.current_user_id:
-        #     return None
-        # track = await self.db.get(Track, track_id)
-        # if track is None or track.is_deleted:
-        #     return None
+    async def add_track_to_playlist(self, playlist_id: int, track_id: int) -> bool:
+        '''add track to playlist, return False if track already exists in playlist'''
+        # check if track already exists in playlist
+        existing = await self.db.execute(
+            select(PlaylistTrack)
+            .where(
+                PlaylistTrack.playlist_id == playlist_id,
+                PlaylistTrack.track_id == track_id
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return False
+        
         max_pos_subq = (
             select(func.coalesce(func.max(PlaylistTrack.position), -1))
             .where(PlaylistTrack.playlist_id == playlist_id)
@@ -308,6 +313,7 @@ class PlaylistService:
             )
         )
         await self.db.commit()
+        return True
     
     async def remove_track_from_playlist(self, playlist_id: int, track_id: int) -> Playlist | None:
         '''remove track from playlist'''
