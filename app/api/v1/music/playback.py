@@ -108,7 +108,9 @@ async def add_playlist_simple(
 
 @router.put('/addtracktoplaylist', response_model=ResponseModel[SuccessMsgModel])
 async def add_track_to_playlist(data: TrackToPlaylistRequest, service: PlaylistService = Depends(PlaylistService)):
-    await service.add_track_to_playlist(data.playlist_id, data.track_id)
+    result = await service.add_track_to_playlist(data.playlist_id, data.track_id)
+    if not result:
+        return ResponseModel(code=400, msg='Track already exists in playlist', data=SuccessMsgModel(info='Track already exists in playlist'))
     return ResponseModel(data=SuccessMsgModel())
 
 @router.put('/removetrackfromplaylist', response_model=ResponseModel[SuccessMsgModel])
