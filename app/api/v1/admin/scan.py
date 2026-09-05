@@ -10,7 +10,7 @@
 
 
 import json, asyncio
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from fastapi.responses import StreamingResponse
 from app.core.state import system_state
 from app.core.deps import require_admin, SettingsDep
@@ -90,7 +90,11 @@ async def start_watcher(current_user: CurrentUser = Depends(require_admin)):
     if success:
         logger.info(f"👀{current_user.username} started the file watcher.")
         return ResponseModel(code=200, msg=msg, data=None)
-    raise BusinessException(code=10500, msg=msg, detail='Failed to start watcher.')
+    raise BusinessException(
+        code=70705, 
+        msg='failed to start watcher.', 
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+    )
 
 @router.post('/stopwatcher', response_model=ResponseModel[None])
 async def stop_watcher(current_user: CurrentUser = Depends(require_admin)):
@@ -99,4 +103,8 @@ async def stop_watcher(current_user: CurrentUser = Depends(require_admin)):
     if success:
         logger.info(f"👀{current_user.username} stopped the file watcher.")
         return ResponseModel(code=200, msg=msg, data=None)
-    raise BusinessException(code=10500, msg=msg, detail='Failed to stop watcher.')
+    raise BusinessException(
+        code=70706, 
+        msg='failed to stop watcher.', 
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+    )

@@ -11,10 +11,11 @@
 
 import aiofiles, requests
 from datetime import datetime
-from fastapi import Request, HTTPException
+from fastapi import Request, status
 from sqlalchemy import select, func, desc, nulls_last
 from sqlalchemy.orm import selectinload, load_only, joinedload
 from app.core.deps import SettingsDep, DbDep
+from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, track_artists, track_genres, Artist, Album, TrackFav, TrackHit, PlaylistTrack
 from app.utils.audiofile import AudioMeta
@@ -40,7 +41,10 @@ class TrackService:
             try:
                 self._update_track_file_tag(track_path, {field: value})
             except Exception as e:
-                errors.append(f'Failed to update metadata for {track_path}: {e}')
+                errors.append({
+                    'track_path': track_path,
+                    'error': str(e)
+                })
                 continue
         return errors
     
@@ -394,8 +398,12 @@ class TrackService:
             if lyric_path.exists(): 
                 lyric_path.unlink()
         except Exception as e:
-            logger.error(f'delet lyric {lyric_path} error: {e}')
-            raise HTTPException(status_code=500, detail='delete lyric error')
+            logger.error(f'delete lyric {lyric_path} error: {e}')
+            raise BusinessException(
+                code=30306, 
+                msg='delete lyric error', 
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            )
 
     async def get_tracks_hit_time(self) -> list[datetime]:
         result = await self.db.execute(

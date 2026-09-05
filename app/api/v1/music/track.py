@@ -9,12 +9,13 @@
 '''
 
 
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, status
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.schemas.track import TrackInfoResponse, TrackMoreInfoResponse
 from app.schemas.common import TrackBrief
 from app.services.track_service import TrackService
+from app.core.exceptions import BusinessException
+
 
 router = APIRouter()
 
@@ -27,7 +28,11 @@ async def get_signed_url(track_id: int, service: TrackService = Depends(TrackSer
 async def get_track(track_id: int, service: TrackService = Depends(TrackService)):
     track = await service.get_track_info(track_id)
     if not track:
-        raise HTTPException(status_code=404, detail='Track not found')
+        raise BusinessException(
+            code=30305, 
+            msg='track not found', 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     return ResponseModel(data=TrackInfoResponse.model_validate(track))
 
 @router.get('/moreinfo/{track_id:int}', response_model=ResponseModel[TrackMoreInfoResponse])

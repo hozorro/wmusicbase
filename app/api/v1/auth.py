@@ -9,9 +9,9 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, status, Request
 from sqlalchemy import select, func
-from app.core.exceptions import credentials_exception
+from app.core.exceptions import BusinessException
 from app.core.deps import get_current_user, ClientTypeDep, SettingsDep, DbDep
 from app.core.state import system_state
 from app.models.user import User
@@ -32,7 +32,11 @@ async def login(
     ''' login'''
     user = await service.authenticate_user(data.username, data.password)
     if not user:
-        raise credentials_exception
+        raise BusinessException(
+            code=20001,
+            msg='invalid credentials when login',
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
     
     access_token = service.create_access_token(user.id, client_type)
     refresh_token = await service.create_refresh_token(user.id, client_type, data.device_id)
@@ -55,9 +59,10 @@ async def register(
     # check if any user exists(can only register when first run and no user exists)
     user_count = await db.scalar(select(func.count(User.id)))
     if user_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail='Registration closed after first user'
+        raise BusinessException(
+            code=20003,
+            msg='registration closed after first user',
+            status_code=status.HTTP_403_FORBIDDEN
         )
     # create user
     hash_password = service.get_password_hash(user.password)
@@ -101,7 +106,11 @@ async def refresh_token(
             )
         )
     except Exception as e:
-        raise credentials_exception
+        raise BusinessException(
+            code=20002,
+            msg='invalid credentials when refresh token',
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
 
 @router.post('/logout', response_model=ResponseModel[None])
 async def logout(
@@ -125,18 +134,4 @@ async def get_me(
         code=200,
         msg='ok',
         data=CurrentUser.model_validate(current_user)
-    )
-
-@router.get('/test', response_model=ResponseModel[InitializedResponse])
-async def test():
-    ''' test'''
-    if not system_state.is_scanning:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail='Scanning is not running'
-        )
-    return ResponseModel(
-        code=200,
-        msg='ok',
-        data={'initialized': system_state.is_scanning}
     )

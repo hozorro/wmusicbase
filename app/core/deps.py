@@ -9,12 +9,12 @@
 '''
 
 
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.db import get_db
 from app.core.config import Settings
-from app.core.exceptions import credentials_exception
+from app.core.exceptions import BusinessException
 from app.schemas.token import ClientType
 from typing import Annotated
 
@@ -39,9 +39,10 @@ async def get_client_type(request: Request) -> ClientType:
     elif path.startswith('/api/v1/artwork'):
         return ClientType.ADMIN
     
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST, 
-        detail='Invalid client type, Please set X-Client-Type header.'
+    raise BusinessException(
+        code=10001,
+        msg='invalid client type, please set x-client-type header',
+        status_code=status.HTTP_400_BAD_REQUEST
     )
 
 def get_settings():
@@ -71,21 +72,27 @@ async def get_current_user(
 ) -> CurrentUser:
     global _USER_CACHE
     if not token:
-        raise credentials_exception
+        raise BusinessException(
+            code=20004,
+            msg='invalid credentials when get current user token',
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
     
     try:
         payload = await service.verify_access_token(token)
         if payload['client_type'] != client_type:
-            raise HTTPException(
+            raise BusinessException(
+                code=20007,
+                msg='token type mismatch with endpoint',
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f'Token type ({payload["client_type"]}) mismatch with endpoint ({client_type})'
             )
 
         user_id = payload.get('user_id')
         if not user_id:
-            raise HTTPException(
+            raise BusinessException(
+                code=20007,
+                msg='token type mismatch with endpoint',
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f'Token type ({payload["user_id"]}) mismatch)'
             )
         if user_id in _USER_CACHE:
             return _USER_CACHE[user_id]
@@ -93,19 +100,28 @@ async def get_current_user(
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if not user:
-            raise credentials_exception
+            raise BusinessException(
+                code=20005,
+                msg='invalid credentials when get current user',
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
         _USER_CACHE[user_id] = user
         return CurrentUser(id=user.id, is_admin=user.is_admin, username=user.username)
     except Exception as e:
-        raise HTTPException(
+        raise BusinessException(
+            code=20008,
+            msg='failed to verify token',
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f'Failed to verify token: {str(e)}'
         )
 async def require_login(request: Request, current_user: CurrentUser = Depends(get_current_user)) -> None:
     request.state.user_id = current_user.id
 async def require_admin(request: Request, current_user: CurrentUser = Depends(get_current_user), client_type: ClientType = Depends(get_client_type)):
     if not current_user.is_admin or client_type != ClientType.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Admin required')
+        raise BusinessException(
+            code=20009,
+            msg='admin required',
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     request.state.user_id = current_user.id
     return current_user
 

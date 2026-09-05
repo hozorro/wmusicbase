@@ -15,6 +15,7 @@ from enum import Enum
 from fastapi import UploadFile
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
+from app.core.exceptions import BusinessException
 from app.models import Track, track_artists, Artist, Album, Playlist
 from app.core.deps import SettingsDep, DbDep
 from app.core.logger import logger
@@ -537,7 +538,11 @@ class ArtworkService:
         '''
         artist = await self.db.get(Artist, artist_id)
         if not artist:
-            raise Exception(f'Artist {artist_id} not found')
+            raise BusinessException(
+                code=30104, 
+                msg=f'artist {artist_id} not found', 
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         content = await image_file.read()
         # whether the artist has directory
         artist_dir = self.get_artist_directory(artist.name)
@@ -666,7 +671,11 @@ class ArtworkService:
         '''
         album = await self.db.get(Album, album_id)
         if not album: 
-            raise Exception('album not found')
+            raise BusinessException(
+                code=30204, 
+                msg='album not found', 
+                status_code=status.HTTP_404_NOT_FOUN
+            )
         content= await image_file.read()
         if self.has_album_directory(album): 
             album_dir = self.get_album_directory(album)
@@ -695,7 +704,11 @@ class ArtworkService:
         '''save uploaded playlist image'''
         playlist = await self.db.get(Playlist, playlist_id)
         if not playlist: 
-            raise Exception('playlist not found')
+            raise BusinessException(
+                code=30504, 
+                msg='playlist not found', 
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         content= await image_file.read()
         img_path = await self._save_artwork_to_cache(playlist_id, 'playlist', content)
         # hash of the static file, consistent with the whole project

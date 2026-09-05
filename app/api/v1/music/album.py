@@ -10,7 +10,7 @@
 
 
 from asyncache import cached
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from app.core.cache import lru_cache
 from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel
@@ -24,5 +24,10 @@ router = APIRouter()
 async def get_album(album_id: int, service: AlbumService = Depends(AlbumService)):
     album = await service.get_album(album_id)
     if not album:
-        raise BusinessException(code=10004, msg='album not exists', detail='album id: ' + str(album_id))
+        raise BusinessException(
+            code=30204, 
+            msg=f'album not exists: {album_id}', 
+            detail={'album_id': album_id},
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     return ResponseModel(data=AlbumDetail.model_validate(album))

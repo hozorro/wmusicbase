@@ -16,8 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.db import engine
-from app.core.exception_handlers import EXCEPTION_HANDLERS
-from app.core.middleware import ScanMiddleware
+from app.core.exceptions import EXCEPTION_HANDLERS
+from app.core.middleware import ScanMiddleware, TraceIdMiddleware
 from app.background.watcher_manager import watcher  # dev mode only; production uses supervisor
 from app.api.v1 import api_router
 from app.core.logger import init_logging, logger
@@ -54,7 +54,6 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
-app.add_middleware(ScanMiddleware)
 @app.middleware("http")
 async def add_cors_to_fileresponse(request, call_next):
     response = await call_next(request)
@@ -66,6 +65,9 @@ async def add_cors_to_fileresponse(request, call_next):
         response.headers["Cache-Control"] = "no-store"
     
     return response
+
+app.add_middleware(ScanMiddleware)
+app.add_middleware(TraceIdMiddleware)
 
 #=========== Including routers ===================
 app.include_router(api_router, prefix="/api/v1")

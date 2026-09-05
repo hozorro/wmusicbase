@@ -11,9 +11,10 @@
 
 import os, mimetypes
 from itsdangerous import BadSignature, SignatureExpired
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import Response
 from app.services.file_service import StreamService
+from app.core.exceptions import BusinessException
 from app.utils.streaming import signer, parse_range
 
 router = APIRouter()
@@ -23,20 +24,36 @@ async def stream_track(track_id: int, token: str, request: Request, service: Str
     try:
         raw = signer.unsign(token, max_age=600).decode()
     except SignatureExpired:
-        raise HTTPException(status_code=401, detail='Token expired')
+        raise BusinessException(
+            code=30301, 
+            msg='token expired when streaming track', 
+            status_code=status.HTTP_403_FORBIDDEN
+        )
     except BadSignature:
-        raise HTTPException(status_code=401, detail='Invalid token')
+        raise BusinessException(
+            code=30302, 
+            msg='invalid token when streaming track', 
+            status_code=status.HTTP_403_FORBIDDEN
+        )
     
     signed_tid, user_id = raw.split(':')
     await service.check_user(int(user_id))
     signed_tid = int(signed_tid)
 
     if signed_tid != track_id:
-        raise HTTPException(status_code=401, detail='Token mismatch')
+        raise BusinessException(
+            code=30303, 
+            msg='token mismatch when streaming track', 
+            status_code=status.HTTP_403_FORBIDDEN
+        )
     
     track_file = await service.get_audio_file(track_id)
     if not track_file:
-        raise HTTPException(status_code=404, detail='Track not found')
+        raise BusinessException(
+            code=30304, 
+            msg='track file not found', 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     
     file_size = os.path.getsize(track_file)
     mime_type, _ = mimetypes.guess_type(track_file)
