@@ -12,10 +12,11 @@
 
 from datetime import datetime
 from typing import get_args
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, status, Query
 from app.services.sync_service import SyncService
 from app.schemas.common import ResponseModel
 from app.schemas.sync import StoreName, SyncPullResponse, SyncSummary
+from app.core.exceptions import BusinessException
 
 router = APIRouter()
 
@@ -52,6 +53,10 @@ async def pull_sync_data(
     Returns items and next_after_id (null when the store pull is finished).
     '''
     if store not in get_args(StoreName):
-        raise HTTPException(status_code=400, detail='Invalid store name')
+        raise BusinessException(
+            code=30601, 
+            msg='invalid store name', 
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
     result = await service.pull(store, since=since, after_id=after_id, size=size)
     return ResponseModel(data=SyncPullResponse(**result))

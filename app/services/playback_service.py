@@ -12,7 +12,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
-from fastapi import Request, UploadFile
+from fastapi import Request, UploadFile, status
 from sqlalchemy import select, update, delete, insert, func, desc
 from sqlalchemy.orm import selectinload, joinedload, load_only
 from sqlalchemy.exc import IntegrityError
@@ -115,11 +115,19 @@ class PlaylistService:
             }
         except IntegrityError as e:
             await self.db.rollback()
-            raise BusinessException(code=10040, msg=f"fail to create playlist", detail=f'db operation failed, maybe the title exists:{e}')
+            raise BusinessException(
+                code=30501, 
+                msg=f"fail to create playlist with integrity error: {playlist.title}", 
+                status_code=status.HTTP_409_CONFLICT
+            )
         except Exception as e:
             await self.db.rollback()
             logger.error(f"fail to create playlist: {e}")
-            raise BusinessException(f"fail to create playlist: {e}")
+            raise BusinessException(
+                code=30502, 
+                msg=f"fail to create playlist with unknown error: {playlist.title}", 
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     # endregion common use
 
@@ -281,7 +289,11 @@ class PlaylistService:
         '''soft delete playlist (mark is_deleted)'''
         playlist = await self.db.get(Playlist, playlist_id)
         if playlist is None or playlist.user_id != self.current_user_id:
-            raise BusinessException(code=10404, msg='playlist not found')
+            raise BusinessException(
+                code=30503, 
+                msg=f'playlist not found when delete: {playlist_id}', 
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         playlist.is_deleted = True
         self.db.add(playlist)
         await self.db.commit()
@@ -359,9 +371,17 @@ class PlaylistService:
         track_ids = [row[0] for row in result.all()]
 
         if track_id not in track_ids:
-            raise BusinessException(code=10404, msg='track not found in playlist')
+            raise BusinessException(
+                code=30505, 
+                msg=f'track not found in playlist when move: {track_id}', 
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         if new_position < 0 or new_position >= len(track_ids):
-            raise BusinessException(code=10400, msg='invalid position')
+            raise BusinessException(
+                code=30506, 
+                msg=f'invalid position when move track in playlist: {track_id}-{new_position}', 
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         track_ids.remove(track_id)
         track_ids.insert(new_position, track_id)
@@ -461,28 +481,51 @@ class PlayDataService:
     async def validate_upload_file(self, file: UploadFile, category: str) -> list:
         # 1. validate upload file
         if file.content_type not in ['application/json', 'text/json']:
-            raise BusinessException(code=10503, msg='file type error', detail='only support json file')
+            raise BusinessException(
+                code=70601, 
+                msg='upload playdata backup file type error', 
+                detail={'allowed_types': ['application/json', 'text/json']},
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+            )
         
         # 2. limit file size（5MB）
         file_size = file.read(1)
         await file.seek(0)
         if file_size > 5 * 1024 * 1024:  # 5MB
-            raise BusinessException(code=10504, msg='file size exceed', detail='less than 5MB allowed')
+            raise BusinessException(
+                code=70602, 
+                msg='upload playdata backup file size exceed', 
+                detail={'limit': '5MB'},
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE
+            )
         
         # 3. read and parse json file
         try:
             file_content = await file.read()
             json_data = json.loads(file_content.decode('utf-8'))
         except UnicodeDecodeError:  # decode error
-            raise BusinessException(code=10505, msg='file decode error', detail='only UTF-8 supported')
+            raise BusinessException(
+                code=70603, 
+                msg='upload playdata backup file decode error', 
+                detail={'allowed_encoding': 'UTF-8'},
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+            )
         except json.JSONDecodeError as e:  # json parse error
-            raise BusinessException(code=10506, msg='json parse error', detail=f'fail to parse json file: {str(e)}')
+            raise BusinessException(
+                code=70604, 
+                msg='playdata backup file parse error', 
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
         finally:
             await file.close()
 
         # 4. validate json structure
         if category not in json_data or not isinstance(json_data[category], list):
-            raise BusinessException(code=10507, msg='json structure error', detail='json structure not correct, check the json file')
+            raise BusinessException(
+                code=70605, 
+                msg='playdata backup file json structure error', 
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
         
         return json_data[category]
     async def get_user_playlist_data(self, user_id: int) -> dict:
@@ -541,7 +584,11 @@ class PlayDataService:
             import_schema = PlaylistImportRoot(json_data)
             import_playlists_data = import_schema.root
         except Exception as e:
-            raise BusinessException(code=10501, msg='import error', detail=f'JSON format validate error: {str(e)}')
+            raise BusinessException(
+                code=70502, 
+                msg='import playlist from json error', 
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
         
         # 2. init stats
         stats = {
@@ -622,7 +669,11 @@ class PlayDataService:
             import_schema = HitImportRoot(json_data)
             import_hits_data = import_schema.root
         except Exception as e:
-            raise BusinessException(code=10501, msg='import error', detail=f'JSON format validate error: {str(e)}')
+            raise BusinessException(
+                code=70606, 
+                msg='import hit from json error', 
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
         
         stats = {
             'total': len(import_hits_data),
@@ -672,7 +723,11 @@ class PlayDataService:
             import_schema = FavImportRoot(json_data)
             import_favs_data = import_schema.root
         except Exception as e:
-            raise BusinessException(code=10501, msg='import error', detail=f'JSON format validate error: {str(e)}')
+            raise BusinessException(
+                code=70607, 
+                msg='import favorite from json error', 
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
         
         stats = {
             'total': len(import_favs_data),

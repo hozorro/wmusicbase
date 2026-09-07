@@ -9,9 +9,11 @@
 '''
 
 
-from fastapi import HTTPException
+from fastapi import status
 from itsdangerous import TimestampSigner
 from app.core.config import settings
+from app.core.exceptions import BusinessException
+
 
 signer = TimestampSigner(settings.SECRET_KEY)
 
@@ -35,4 +37,8 @@ def parse_range(range_header: str, file_size: int):
         
         return start, end
     except Exception as e:
-        raise HTTPException(status_code=416, detail='Invalid range header')
+        raise BusinessException(
+            code=30307,
+            msg='invalid range header',
+            status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE
+        )

@@ -9,7 +9,7 @@
 '''
 
 
-from fastapi import APIRouter, UploadFile, HTTPException, Form, Query, Depends, Response
+from fastapi import APIRouter, UploadFile, Form, Query, Depends, Response, status
 from app.services.file_service import FileService, ArchiveService
 from app.services.fetchcoverart import get_cover_art, cover_cache
 from app.core.deps import SettingsDep, ADMIN_DEPS
@@ -28,7 +28,11 @@ router = APIRouter(dependencies=ADMIN_DEPS)
 @router.post('/uploadfile', response_model=ResponseModel[FileBase])
 async def upload_file(file: UploadFile, name: Annotated[str | None, Form()] = None, service: FileService = Depends(FileService)):
     if file.content_type not in ['audio/mpeg', 'audio/flac']:
-        raise HTTPException(status_code=400, detail='Only mp3 and flac files are allowed')
+        raise BusinessException(
+            code=70315, 
+            msg='only mp3 and flac files are allowed', 
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        )
     content = await file.read()
     if name:
         filename = name
@@ -55,9 +59,17 @@ async def get_session_files(session_id: str, service: FileService = Depends(File
         files = service.list_session_files(session_id)
         return ResponseModel(data=FileInfoListResponse(files))
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail='Session not found')
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when get file info: {str(e)}')
+        raise BusinessException(
+            code=70302, 
+            msg='session not found', 
+            status_code=status.HTTP_404_NOT_FOUND, 
+        )
+    except Exception:
+        raise BusinessException(
+            code=70303, 
+            msg='error when get session file info', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
 
 @router.post('/staging/sessions/{session_id}/files', response_model=ResponseModel[FileInfoListResponse])
 async def add_file_to_session(
@@ -73,7 +85,11 @@ async def add_file_to_session(
     moved = []
     session_dir = settings.STAGING_DIR / session_id
     if not session_dir.exists():
-        raise HTTPException(status_code=404, detail='Session not found')
+        raise BusinessException(
+            code=70302, 
+            msg='session not found', 
+            status_code=status.HTTP_404_NOT_FOUND, 
+        )
     
     try:
         if temp_file_id is None:
@@ -82,17 +98,29 @@ async def add_file_to_session(
         else:
             # 移动单个temp文件
             moved.append(service.move_single_to_staging(session_id, temp_file_id))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=f'Error when moving file: {str(e)}')
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when moving file: {str(e)}')
+    except FileNotFoundError:
+        raise BusinessException(
+            code=70304, 
+            msg='file not found when moving', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
+    except Exception:
+        raise BusinessException(
+            code=70305, 
+            msg='error when moving file', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
     
     # 2. 获取所有文件的信息
     try:
         files = service.list_session_files(session_id, moved)
         return ResponseModel(data=FileInfoListResponse(files))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when get file info: {str(e)}')
+    except Exception:
+        raise BusinessException(
+            code=70303, 
+            msg='error when get session file info', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
     
 @router.post('/staging/sessions/{session_id}/updateversion', response_model=ResponseModel[CountResponse])
 async def update_version(session_id: str, input: UpdateVerionList, service: FileService = Depends(FileService)):
@@ -100,19 +128,35 @@ async def update_version(session_id: str, input: UpdateVerionList, service: File
         for item in input.items:
             service.update_file_version(session_id, item.id, item.use_apev2)
         return ResponseModel(data=CountResponse(count=len(input.items)))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when update file meta version: {str(e)}')
+    except Exception:
+        raise BusinessException(
+            code=70307, 
+            msg='error when update file meta version', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
 
 @router.post('/staging/sessions/{session_id}/updatemetatags', response_model=ResponseModel[CountResponse])
 async def update_metatags(session_id: str, input: UpdateMetaTagsList, service: FileService = Depends(FileService)):
     try:
         batch_count = input.batch_count
         if batch_count <= 0:
-            raise HTTPException(status_code=400, detail='Invalid batch count')
+            raise BusinessException(
+                code=70308, 
+                msg='invalid batch count', 
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         if batch_count > settings.MAX_UPDATE_META_BATCH_COUNT:
-            raise HTTPException(status_code=400, detail='Batch count overload')
+            raise BusinessException(
+                code=70309, 
+                msg='batch count overload', 
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
     except ValueError:
-        raise HTTPException(status_code=400, detail='Invalid batch count')
+        raise BusinessException(
+            code=70308, 
+            msg='invalid batch count', 
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     
     try:
         for item in input.items:
@@ -120,8 +164,12 @@ async def update_metatags(session_id: str, input: UpdateMetaTagsList, service: F
             data = {k: v for k, v in item.model_dump().items() if k != 'id'}
             service.update_file_metatags(session_id, item.id, data)
         return ResponseModel(data=CountResponse(count=len(input.items)))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when update metadata: {str(e)}')
+    except Exception:
+        raise BusinessException(
+            code=70307, 
+            msg='error when update file meta tags', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
 
 # @router.post('/staging/sessions/{session_id}/updatemetadatas', response_model=ResponseModel[CountResponse])
 # async def update_metadatas(session_id: str, request: Request, settings: SettingsDep, service: FileService = Depends(FileService)):
@@ -182,7 +230,14 @@ async def archive_session_route(
 ):
     errors = await service.archive_session(session_id, input.items, input.playlist, lang)
     if errors:
-        raise BusinessException(code=1002, msg='partial success', detail='\n'.join(errors))
+        errors_str = '\n  '.join([f"{item['file']}: {item['error']}" for item in errors])
+        error_files = [item['file'] for item in errors]
+        raise BusinessException(
+            code=70306, 
+            msg=f'archive track file partial success: \n{errors_str}', 
+            detail={'error_files': error_files},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     return ResponseModel(data=ArchiveResponse(archived=True))
 
 @router.post('/staging/sessions/fingerprint', response_model=ResponseModel[Fingerprint])
@@ -191,7 +246,11 @@ async def fingerprint(fp_input: CreateFingerprint, settings: SettingsDep):
     try:
         duration, fp = generate_fingerprint(file_path)
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=f'Error when generate fingerprint: {str(e)}')
+        raise BusinessException(
+            code=70311, 
+            msg='error when generate fingerprint', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
     return ResponseModel(data=Fingerprint(duration=duration, fingerprint=fp))
 
 @router.post('/staging/sessions/match', response_model=ResponseModel[MatchAcoustResponse])
@@ -199,7 +258,11 @@ async def match(fingerprint: Fingerprint):
     try:
         acoust_info_list = match_fingerprint(fingerprint.duration, fingerprint.fingerprint)
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=f'Error when match song metadata: {str(e)}')
+        raise BusinessException(
+            code=70312, 
+            msg='error when match song metadata', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
     return ResponseModel(data=MatchAcoustResponse(matched_list=acoust_info_list))
 
 @router.get('/staging/coverart/{release_id}')
@@ -207,9 +270,17 @@ async def get_cover(release_id: str):
     try:
         cover_data = get_cover_art(release_id)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when fetch cover art: {str(e)}')
+        raise BusinessException(
+            code=70313, 
+            msg='error when fetch cover art', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
     if cover_data is None:
-        raise HTTPException(status_code=404, detail='Cover art not found')
+        raise BusinessException(
+            code=70314, 
+            msg='cover art not found', 
+            status_code=status.HTTP_404_NOT_FOUND, 
+        )
     return Response(
         content=cover_data,
         media_type='image/jpeg',

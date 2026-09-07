@@ -86,6 +86,7 @@ class FolderService:
             child.subfolder_count = subfolder_counts.get(child.id, 0)
             child.track_count = track_counts.get(child.id, 0)
             subfolders.append(child)
+        subfolders.sort(key=lambda x: x.path)
         folder.subfolders = subfolders
 
         return folder

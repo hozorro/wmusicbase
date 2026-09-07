@@ -15,13 +15,13 @@
 # If the frontend receives a 404 error, it will display the default cover art by itself.
 # So the backend default artwork will be priority to the frontend default artwork.
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, Form
+from fastapi import APIRouter, Depends, Query, Response, UploadFile, Form, status
 from fastapi.responses import FileResponse
 from app.core.config import settings
-from app.core.deps import ADMIN_DEPS
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.services.artwork_service import ArtworkService
 from app.services.fetchcoverart import get_cover_art, cover_cache
+from app.core.exceptions import BusinessException
 
 router = APIRouter()
 
@@ -30,37 +30,61 @@ async def get_artist_artwork(artist_id: int, img_cate: str, service: ArtworkServ
     cache_path = await service.get_or_cache_artist_artwork(artist_id, img_cate)
     if cache_path: 
         return FileResponse(cache_path)
-    raise HTTPException(status_code=404, detail='Artist artwork not Found')
+    raise BusinessException(
+        code=60104,
+        msg='artist artwork not found',
+        status_code=status.HTTP_404_NOT_FOUND
+    )
     
 @router.get('/track/{track_id}', tags=['artwork'])
 async def get_track_artwork(track_id: int, service: ArtworkService = Depends(ArtworkService)):
     cache_path = await service.get_or_cache_track_artwork(track_id)
     if cache_path: 
         return FileResponse(cache_path)
-    raise HTTPException(status_code=404, detail='Track artwork not Found')
+    raise BusinessException(
+        code=60304,
+        msg='track artwork not found',
+        status_code=status.HTTP_404_NOT_FOUND
+    )
     
 @router.get('/album/{album_id}', tags=['artwork'])
 async def get_album_artwork(album_id: int, service: ArtworkService = Depends(ArtworkService)):
     cache_path = await service.get_or_cache_album_artwork(album_id)
     if cache_path: 
         return FileResponse(cache_path)
-    raise HTTPException(status_code=404, detail='Album artwork not Found')
+    raise BusinessException(
+        code=60204,
+        msg='album artwork not found',
+        status_code=status.HTTP_404_NOT_FOUND
+    )
 
 @router.get('/playlist/{playlist_id}', tags=['artwork'])
 async def get_playlist_artwork(playlist_id: int | str, service: ArtworkService = Depends(ArtworkService)):
     cache_path = await service.get_or_cache_playlist_artwork(playlist_id)
     if cache_path: 
         return FileResponse(cache_path)
-    raise HTTPException(status_code=404, detail='Playlist artwork not Found')
+    raise BusinessException(
+        code=60504,
+        msg='playlist artwork not found',
+        status_code=status.HTTP_404_NOT_FOUND
+    )
 
 @router.get('/staging/{release_id}')
 async def get_cover(release_id: str):
     try:
         cover_data = get_cover_art(release_id)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error when fetch cover art: {str(e)}')
+    except Exception:
+        raise BusinessException(
+            code=60205, 
+            msg='cover art fetch error', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     if cover_data is None:
-        raise HTTPException(status_code=404, detail='Cover art not found')
+        raise BusinessException(
+            code=60206, 
+            msg='cover art not found', 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     return Response(
         content=cover_data,
         media_type='image/jpeg',
@@ -80,14 +104,22 @@ async def get_tmp_track_artwork(
     cache_path = await service.get_or_cache_tmp_track_artwork(str(file_path))
     if cache_path: 
         return FileResponse(cache_path)
-    raise HTTPException(status_code=404, detail=f'Tmp Track artwork not Found: {file_path}')
+    raise BusinessException(
+        code=60305, 
+        msg='tmp track artwork not found', 
+        status_code=status.HTTP_404_NOT_FOUND
+    )
 
 @router.get('/default/{art_type}', tags=['artwork'])
 async def get_default_artwork(art_type: str, service: ArtworkService = Depends(ArtworkService)):
     cache_path = await service.get_default_art(art_type)
     if cache_path: 
         return FileResponse(cache_path)
-    raise HTTPException(status_code=404, detail='Default artwork not Found')
+    raise BusinessException(
+        code=60404, 
+        msg='default artwork not found', 
+        status_code=status.HTTP_404_NOT_FOUND
+    )
 
 @router.get('/candidates/{artist_id}/{filename}', tags=['artwork'])
 async def get_artist_art_candidate(
@@ -98,7 +130,11 @@ async def get_artist_art_candidate(
     '''serve candidate artwork image for an artist (admin only)'''
     file_path = await service.get_artist_candidate_file(artist_id, filename)
     if not file_path:
-        raise HTTPException(status_code=404, detail='Candidate artwork not found')
+        raise BusinessException(
+            code=60105, 
+            msg='candidate artist artwork not found', 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     return FileResponse(
         file_path,
         headers={'Cache-Control': 'no-cache'}  # no caching since frontend uses ?t= timestamp
@@ -108,8 +144,16 @@ async def get_artist_art_candidate(
 async def set_default_art(cover: UploadFile, art_type: str = Form(...), service: ArtworkService = Depends(ArtworkService)):
     try:
         if cover.content_type not in ['image/jpeg', 'image/png']:
-            raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
+            raise BusinessException(
+                code=60415, 
+                msg='only jpg and png files are allowed', 
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+            )
         await service.set_default_art(art_type, cover)
         return ResponseModel(data=SuccessMsgModel())
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Failed to set default {art_type} art.')
+        raise BusinessException(
+            code=60405, 
+            msg='failed to set default artwork', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

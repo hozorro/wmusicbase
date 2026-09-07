@@ -9,9 +9,11 @@
 '''
 
 
+import uuid
 from fastapi import Request, status
 from starlette.responses import JSONResponse
 from app.core.state import system_state
+from starlette.middleware.base import BaseHTTPMiddleware
 
 ALLOWED_DURING_SCAN = {
     '/api/v1/system/initialized',
@@ -43,3 +45,12 @@ class ScanMiddleware:
             await response(scope, receive, send)
             return
         await self.app(scope, receive, send)
+
+class TraceIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        trace_id = request.headers.get('X-Request-Id') or uuid.uuid4().hex
+        request.state.trace_id = trace_id
+
+        response = await call_next(request)
+        response.headers['X-Request-Id'] = trace_id
+        return response

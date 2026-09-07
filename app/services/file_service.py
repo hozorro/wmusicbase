@@ -13,9 +13,9 @@ import shutil, json, re, uuid, aiofiles
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import select
-from fastapi import Request
+from fastapi import Request, status
 from app.core.deps import SettingsDep, DbDep
-from app.core.exceptions import BusinessException, credentials_exception
+from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, User
 from app.utils.metadata import parse_metadata
@@ -76,7 +76,12 @@ class FileService:
         try:
             shutil.move(str(temp_file), str(dest))
         except Exception as e:
-            raise BusinessException(code=10050, msg='IO error', detail=f'Failed to move {temp_file} to {dest}: {e}')
+            raise BusinessException(
+                code=70301, 
+                msg='failed to move {temp_file} to stageing {dest}', 
+                detail={'temp_file': temp_file},
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def move_all_to_staging(self, session_id: str) -> list[str]:
         '''move all files in the temp directory to staging session directory'''
@@ -177,7 +182,7 @@ class ArchiveService:
             try:
                 meta = parse_metadata(song_file)
             except Exception:
-                errors.append(f'Failed to extract metadata from {song_file}')
+                errors.append({'file': song_file, 'error': 'Failed to extract metadata'})
                 continue
             # 2. recognize the artist_name(used for path generation)
             artist_name = 'Unknown Artist'
@@ -195,7 +200,7 @@ class ArchiveService:
                 shutil.move(str(song_file), str(target_path))
                 results.append((item, target_path)) # item is the relative path
             except Exception as e:
-                errors.append(f'Failed to move {song_file} to {target_path}: {e}')
+                errors.append({'file': song_file, 'error': f'Failed to move to {target_path}: {e}'})
                 continue
 
             # 6. triggle music file processor(archive to db)
@@ -255,4 +260,8 @@ class StreamService:
         result = await self.db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if not user:
-            raise credentials_exception
+            raise BusinessException(
+                code=20006,
+                msg='invalid credentials when check user as streaming',
+                status_code=status.HTTP_403_FORBIDDEN
+            )

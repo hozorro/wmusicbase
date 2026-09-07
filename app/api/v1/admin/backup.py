@@ -11,7 +11,7 @@
 
 import json
 from io import StringIO
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import StreamingResponse
 from app.core.deps import SettingsDep, ADMIN_DEPS
 from app.core.exceptions import BusinessException
@@ -53,13 +53,23 @@ async def backup_playlist(playlist_id: int, service: PlaylistService = Depends(P
         await service.backup_user_playlist_to_json(playlist_id)
         return ResponseModel(data=SuccessMsgModel(info='backup successfully'))
     except Exception as e:
-        raise BusinessException(code=10501, msg='backup error', detail=str(e))
+        raise BusinessException(
+            code=70501, 
+            msg=f'playlist backup error: {str(e)}', 
+            detail={'playlist_id': playlist_id}, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     
 @router.delete('/deleteplaylistjson', response_model=ResponseModel[SuccessMsgModel])
 async def delete_playlist_json(filename: str, settings: SettingsDep):
     json_file = settings.PLAYLISTS_TMP_DIR / filename
     if not json_file.exists():
-        raise BusinessException(code=10502, msg='json file not exists', detail=f'{filename}')
+        raise BusinessException(
+            code=70504, 
+            msg='playlist json file not exists', 
+            detail={'filename': filename}, 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     json_file.unlink()
     return ResponseModel(data=SuccessMsgModel(info='successfully deleted'))
 

@@ -9,7 +9,7 @@
 '''
 
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, File
+from fastapi import APIRouter, Depends, UploadFile, Form, File, status
 from pydantic import BaseModel
 from app.schemas.common import ResponseModel, SuccessMsgModel, CountResponse, ArtistBase
 from app.schemas.filething import UpdateMetaTagList
@@ -38,43 +38,76 @@ async def get_artists(start_char: str, service: ArtistService = Depends(ArtistSe
 async def get_artist(artist_id: int, service: ArtistService = Depends(ArtistService)):
     artist = await service.get_artist(artist_id)
     if artist is None: 
-        raise BusinessException(code=10004, msg='artist not exists', detail='artist id: ' + str(artist_id))
+        raise BusinessException(
+            code=70104, 
+            msg=f'artist not exists: {artist_id}',
+            detail={'artist_id': artist_id},
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     return ResponseModel(data=ArtistResponse.model_validate(artist))
 
 @router.get('/album/{album_id}', response_model=ResponseModel[AlbumResponse], tags=['edit'])
 async def get_album(album_id: int, service: AlbumService = Depends(AlbumService)):
     album = await service.get_album_with_track_detail(album_id)
     if not album:
-        raise BusinessException(code=10004, msg='album not exists', detail='album id: ' + str(album_id))
+        raise BusinessException(
+            code=70204, 
+            msg=f'album not exists: {album_id}', 
+            detail={'album_id': album_id},
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     return ResponseModel(data=AlbumResponse.model_validate(album))
 
 @router.post('/uploadartistart', response_model=ResponseModel[ArtistArtUpdate], tags=['edit'])
 async def upload_artist_art(item: ArtistArtCreate = Depends(artist_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
     if item.file.content_type not in ['image/jpeg', 'image/png']:
-        raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
+        raise BusinessException(
+            code=60115, 
+            msg='only jpg and png files are allowed', 
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        )
     try:
         await service.save_uploaded_artist_image(item.id, item.art_type, item.file)
         await item.file.close()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Failed to save artist art: {str(e)}')
+        raise BusinessException(
+            code=60106, 
+            msg=f'failed to save artist art', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     return ResponseModel(data=ArtistArtUpdate.model_validate({id: item.id, 'art_type': item.art_type}))
 
 @router.post('/uploadalbumart', response_model=ResponseModel[CountResponse], tags=['edit'])
 async def upload_album_art(item: AlbumArtCreate = Depends(album_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
     if item.file.content_type not in ['image/jpeg', 'image/png']:
-        raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
+        raise BusinessException(
+            code=60215, 
+            msg='only jpg and png files are allowed', 
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        )
     try:
         await service.save_uploaded_album_image(item.id, item.file)
         await item.file.close()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Failed to save album art: {str(e)}')
+        raise BusinessException(
+            code=60207, 
+            msg=f'failed to save album art', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     return ResponseModel(data=CountResponse(count=item.id))
 
 @router.post('/updatetrackfieldtag', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
 async def update_track_field_tag(data: UpdateMetaTagList, service: TrackService = Depends(TrackService)):
     errors = await service.update_tracks_field_tag(data.items, data.field, data.value)
     if errors:
-        raise BusinessException(code=10002, msg='partial success', detail='\n'.join(errors))
+        errors_str = '\n  '.join([f"{item['track_path']}: {item['error']}" for item in errors])
+        errors_paths = [item['track_path'] for item in errors]
+        raise BusinessException(
+            code=70316, 
+            msg=f'update track metadata partial success: \n{errors_str}', 
+            detail={'errors': errors_paths}, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     return ResponseModel(data=SuccessMsgModel())
 
 
@@ -94,11 +127,19 @@ async def get_artist_art_candidates(
 ):
     '''get candidate artwork filenames for an artist'''
     if art_type not in ('face', 'portrait'):
-        raise HTTPException(status_code=400, detail='art_type must be face or portrait')
+        raise BusinessException(
+            code=60107, 
+            msg='art_type must be face or portrait', 
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
     try:
         candidates = await service.get_artist_art_candidates(artist_id, art_type)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise BusinessException(
+            code=60108, 
+            msg='candidate artist artwork not found', 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
     return ResponseModel(data={'candidates': candidates})
 
 
@@ -112,17 +153,34 @@ async def upload_artist_art_candidate(
     '''upload a candidate artwork image to the artist directory'''
     # validate file type
     if file.content_type not in ['image/jpeg', 'image/png']:
-        raise HTTPException(status_code=400, detail='Only jpg and png files are allowed')
+        raise BusinessException(
+            code=60116, 
+            msg='only jpg and png files are allowed', 
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        )
     # validate file size (read and check)
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail='File size exceeds 5MB limit')
+        raise BusinessException(
+            code=60113, 
+            msg='file size exceeds 5MB limit', 
+            detail={'file_limit': '5MB'}, 
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE
+        )
     if art_type not in ('face', 'portrait'):
-        raise HTTPException(status_code=400, detail='art_type must be face or portrait')
+        raise BusinessException(
+            code=60107, 
+            msg='art_type must be face or portrait', 
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
     try:
         filename = await service.upload_artist_art_candidate(artist_id, art_type, content)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise BusinessException(
+            code=60109, 
+            msg='failed to upload artist art candidate', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     return ResponseModel(data={'filename': filename})
 
 
@@ -133,9 +191,17 @@ async def set_artist_art(
 ):
     '''set an artist\'s official artwork from a candidate file'''
     if data.art_type not in ('face', 'portrait'):
-        raise HTTPException(status_code=400, detail='art_type must be face or portrait')
+        raise BusinessException(
+            code=60107, 
+            msg='art_type must be face or portrait', 
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
     try:
         url = await service.set_artist_art_from_candidate(data.artist_id, data.art_type, data.filename)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BusinessException(
+            code=60110, 
+            msg='failed to set artist art from candidate', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     return ResponseModel(data=url)

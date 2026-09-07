@@ -10,7 +10,8 @@
 
 
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, status
+from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel, SuccessMsgModel, PlaylistBase
 from app.schemas.playback import (
     PlaylistResponse,
@@ -59,13 +60,21 @@ async def add_playlist(
     result = {}
     try:
         result = await playlist_service.create_playlist_and_bind_tracks(create_data.title, create_data.comment)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise BusinessException(
+            code=30507, 
+            msg='error when create playlist', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
     
     if create_data.cover and result:
         try:
             if create_data.cover.content_type not in ['image/jpeg', 'image/png']:
-                raise Exception('Only jpg and png files are allowed')
+                raise BusinessException(
+                    code=30515, 
+                    msg='only jpg and png files are allowed for playlist images', 
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, 
+                )
             await artwork_service.save_uploaded_playlist_image(result['playlist'].id, create_data.cover)
         except Exception as e:
             return ResponseModel(data=SuccessMsgModel(info='Playlist created successfully, but failed to save playlist image'))
@@ -80,16 +89,28 @@ async def edit_playlist(
 ):
     try:
         playlist = await service.update_playlist(data.id, data.title, data.comment)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise BusinessException(
+            code=30508, 
+            msg='error when update playlist', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+        )
     
     if data.cover:
         try:
             if data.cover.content_type not in ['image/jpeg', 'image/png']:
-                raise Exception('Only jpg and png files are allowed')
+                raise BusinessException(
+                    code=30515, 
+                    msg='only jpg and png files are allowed for playlist images', 
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, 
+                )
             await artwork_service.save_uploaded_playlist_image(data.id, data.cover)
-        except Exception as e:
-            return ResponseModel(data=SuccessMsgModel(info='Playlist updated successfully, but failed to save playlist image'))
+        except Exception:
+            raise BusinessException(
+                code=30509, 
+                msg='update successful but error when save playlist image', 
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            )
     
     return ResponseModel(data=PlaylistResponse.model_validate(playlist))
 
@@ -110,7 +131,11 @@ async def add_playlist_simple(
 async def add_track_to_playlist(data: TrackToPlaylistRequest, service: PlaylistService = Depends(PlaylistService)):
     result = await service.add_track_to_playlist(data.playlist_id, data.track_id)
     if not result:
-        return ResponseModel(code=400, msg='Track already exists in playlist', data=SuccessMsgModel(info='Track already exists in playlist'))
+        raise BusinessException(
+            code=30509, 
+            msg='track already exists in playlist', 
+            status_code=status.HTTP_409_CONFLICT, 
+        )
     return ResponseModel(data=SuccessMsgModel())
 
 @router.put('/removetrackfromplaylist', response_model=ResponseModel[SuccessMsgModel])
