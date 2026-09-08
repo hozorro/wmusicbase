@@ -197,16 +197,34 @@ class PlaylistService:
     # region frontend use
     async def get_top_playlists(self, limit: int = 6) -> list[dict]:
         '''get the most played playlists'''
+        track_count_subq = (
+            select(
+                PlaylistTrack.playlist_id,
+                func.count(PlaylistTrack.track_id).label('track_count')
+            )
+            .group_by(PlaylistTrack.playlist_id)
+            .subquery()
+        )
         stmt = (
-            select(Playlist.id, Playlist.title, Playlist.cover_art_hash, func.count(PlaylistHit.id).label('hit_count') )
+            select(
+                Playlist.id,
+                Playlist.title,
+                Playlist.cover_art_hash,
+                func.count(PlaylistHit.id).label('hit_count'),
+                func.coalesce(track_count_subq.c.track_count, 0).label('track_count')
+            )
             .outerjoin(PlaylistHit, PlaylistHit.playlist_id == Playlist.id)
+            .outerjoin(track_count_subq, Playlist.id == track_count_subq.c.playlist_id)
             .where(Playlist.user_id == self.current_user_id, Playlist.is_deleted == False)
-            .group_by(Playlist.id)
+            .group_by(Playlist.id, track_count_subq.c.track_count)
             .order_by(desc('hit_count'), Playlist.updated_at.desc())
             .limit(limit)
         )
         result = await self.db.execute(stmt)
-        playlists = [{'id': id, 'title': title, 'cover_art_hash': cover_art_hash} for id, title, cover_art_hash, _ in result.all()]
+        playlists = [
+            {'id': id, 'title': title, 'cover_art_hash': cover_art_hash, 'track_count': track_count}
+            for id, title, cover_art_hash, _, track_count in result.all()
+        ]
         return playlists
     
     async def get_user_playlists(self) -> list[dict]:

@@ -87,7 +87,7 @@ class AudioMeta:
         }
         metadata_additional = {
             'albumartist': [],
-            'artwork': None,
+            'cover_art_hash': None,
             'mb_artistids': [],
             'mb_albumartistid': [],
             'mb_albumid': '',
