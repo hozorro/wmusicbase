@@ -9,11 +9,12 @@
 '''
 
 
+from pathlib import Path
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, Encoding
 from mutagen.apev2 import APEv2, APENoHeaderError
 from app.schemas.filething import FileInfo
-from .metadata import decode_tag_value, parse_metadata, write_metadata, extract_cover_art_hash
+from .metadata import decode_tag_value, parse_metadata, easy_metadata, write_metadata, extract_cover_art_hash
 from .common import decode_object, parse_year, parse_multiple_value
 
 _KEY_MAP = {
@@ -95,7 +96,10 @@ class AudioMeta:
             'acoustid_id': '',
         }
         try:
-            meta = parse_metadata(self.file_path)
+            if Path(self.file_path).suffix.lower() == ".mp3":
+                meta = parse_metadata(Path(self.file_path))
+            else:
+                meta = easy_metadata(Path(self.file_path))
             metadata_primary['title'] = meta.get('title', '')
             metadata_primary['artists'] = meta.get('artists', [])
             metadata_primary['album'] = meta.get('album', '')
@@ -111,6 +115,7 @@ class AudioMeta:
         except Exception:
             pass
         return {'primary': metadata_primary, 'additional': metadata_additional}
+    
     @property
     def apev2_data(self):
         meta = {
@@ -131,6 +136,7 @@ class AudioMeta:
             return meta
         except APENoHeaderError:
             return None
+    
     def to_dict(self):
         return {
             'path': self.file_path,
@@ -140,14 +146,16 @@ class AudioMeta:
         }
     
     def to_fileinfo(self) -> FileInfo:
+        meta_data = self.meta_data
         return FileInfo(
             path=self.file_path, 
             encoding=self.meta_encoding, 
             version=self.meta_version,
-            meta_id3=self.meta_data['primary'],
+            meta_id3=meta_data['primary'],
             meta_apev2=self.apev2_data,
-            meta_additional=self.meta_data['additional']
+            meta_additional=meta_data['additional']
         )
+    
     def update_version(self, use_apev2=False, del_id3v1=True, del_apev2=False):
         '''handle meta data
         if the version is ID3v1, fix the encoding and upgrade to ID3v2.4
