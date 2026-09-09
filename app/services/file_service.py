@@ -9,7 +9,7 @@
 '''
 
 
-import shutil, json, re, uuid, aiofiles
+import shutil, json, re, uuid, aiofiles, time
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import select
@@ -203,6 +203,7 @@ class ArchiveService:
             try:
                 shutil.move(str(song_file), str(target_path))
                 results.append((item, target_path)) # item is the relative path
+                time.sleep(0.5) # add a small delay for watcher to process the added file
             except Exception as e:
                 errors.append({'file': song_file.name, 'error': f'Failed to move to {target_path.name}: {e}'})
                 continue
