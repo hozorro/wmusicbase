@@ -17,7 +17,7 @@ from app.core.state import system_state
 from app.core.logger import logger
 from app.schemas.filething import ParsedMeta
 from app.services.processor import MusicFileProcessor
-from app.utils.metadata import parse_metadata, easy_metadata
+from app.utils.metadata import read_metadata
 
 SCAN_TASK_COUNT = 50
 COMMIT_TASK_COUNT = 100
@@ -36,10 +36,7 @@ class Scanner:
         update scan progress in system state.
         '''
         try:
-            if file_path.suffix.lower() == ".mp3":
-                meta = parse_metadata(file_path)
-            else:
-                meta = easy_metadata(file_path)
+            meta = read_metadata(file_path)
             meta.update({"path": str(file_path)})
             # file_fp = compute_file_hash(file_path)
             # meta.update({

@@ -235,7 +235,7 @@ async def archive_session_route(
         raise BusinessException(
             code=70306, 
             msg=f'archive track file partial success: \n{errors_str}', 
-            detail={'error_files': error_files},
+            detail={'errors': errors_str} if settings.DEBUG else {'errors': error_files},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     return ResponseModel(data=ArchiveResponse(archived=True))
