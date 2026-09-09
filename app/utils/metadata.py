@@ -67,6 +67,7 @@ def decode_tag_value(raw_value: Any, encoding: int) -> str:
         decoded_str = str(raw_value)
     # strip and transform to utf-8 finally
     return decoded_str.strip().encode('utf-8', errors='ignore').decode('utf-8')
+
 def parse_metadata(file_path: str | Path) -> dict[str, Any]:
     # initial result
     result = {
@@ -137,6 +138,65 @@ def parse_metadata(file_path: str | Path) -> dict[str, Any]:
         result['mb_albumartistid'].extend([None] * (len(result['albumartist']) - len(result['mb_albumartistid'])))
 
     return result
+
+def easy_metadata(file_path: Path | str) -> dict[str, Any] | None:
+    '''
+    extract metadata from audio file, without encoding transform
+    '''
+    try:
+        audio = MutagenFile(file_path, easy=True)
+        if not audio or not hasattr(audio, 'info') or not audio.info:
+            return None
+        
+        def _get_first(lst: list[str], default: str = '') -> str:
+            return lst[0] if lst else default
+        
+        def _get_list(tag: str) -> list[str]:
+            return audio.get(tag, [])
+        
+        title = _get_first(audio.get('title', ['']))
+        if not title:
+            title = file_path.stem # use file name as title if no title tag
+        
+        artists = _get_list('artist')
+        mb_artistids = _get_list('musicbrainz_artistid')
+        if len(mb_artistids) < len(artists):
+            mb_artistids.extend([None] * (len(artists) - len(mb_artistids)))
+        
+        albumartist = _get_list('albumartist')
+        mb_albumartistid = _get_list('musicbrainz_albumartistid')
+        if len(mb_albumartistid) < len(albumartist):
+            mb_albumartistid.extend([None] * (len(albumartist) - len(mb_albumartistid)))
+        
+        bitrate_mode = BITRATE_MODES.get(getattr(audio.info, 'bitrate_mode', None), None)
+
+        return {
+            'title': title,
+            'artists': list(set(artists)),  # remove duplicate artists
+            'mb_artistids': list(set(mb_artistids)),  # remove duplicate mb_artistids
+            'album': _get_first(audio.get('album', [''])),
+            'mb_albumid': _get_first(audio.get('musicbrainz_albumid', [''])),
+            'albumartist': list(set(albumartist)),  # remove duplicate albumartists 
+            'mb_albumartistid': list(set(mb_albumartistid)),  # remove duplicate mb_albumartistid
+            'year': parse_year(_get_first(audio.get('date', ['']))),
+            'genres': list(set(_get_list('genre'))),  # remove duplicate genres
+            'duration': getattr(audio.info, 'length', 0.0),
+            'bitrate': getattr(audio.info, 'bitrate', 0) // 1000,
+            'bitrate_mode': bitrate_mode,
+            'acoustid_id': _get_first(audio.get('acoustid_id', [''])),
+            'mb_trackid': _get_first(audio.get('musicbrainz_trackid', [''])),
+        }
+    except Exception as e:
+        print(f'Error parsing metadata for {file_path}: {e}')
+        return None
+
+def read_metadata(file_path: str | Path) -> dict[str, Any] | None:
+    f_path = Path(file_path)
+    if f_path.suffix.lower() == '.mp3':
+        return parse_metadata(f_path)
+    elif f_path.suffix.lower() == '.flac':
+        return easy_metadata(f_path)
+
 def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
     if Path(file_path).exists():
         try:
@@ -213,56 +273,6 @@ def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
             raise Exception('Update metadata failed')
     else:
         raise FileNotFoundError
-def easy_metadata(file_path: Path | str) -> dict[str, Any] | None:
-    '''
-    extract metadata from audio file, without encoding transform
-    '''
-    try:
-        audio = MutagenFile(file_path, easy=True)
-        if not audio or not hasattr(audio, 'info') or not audio.info:
-            return None
-        
-        def _get_first(lst: list[str], default: str = '') -> str:
-            return lst[0] if lst else default
-        
-        def _get_list(tag: str) -> list[str]:
-            return audio.get(tag, [])
-        
-        title = _get_first(audio.get('title', ['']))
-        if not title:
-            title = file_path.stem # use file name as title if no title tag
-        
-        artists = _get_list('artist')
-        mb_artistids = _get_list('musicbrainz_artistid')
-        if len(mb_artistids) < len(artists):
-            mb_artistids.extend([None] * (len(artists) - len(mb_artistids)))
-        
-        albumartist = _get_list('albumartist')
-        mb_albumartistid = _get_list('musicbrainz_albumartistid')
-        if len(mb_albumartistid) < len(albumartist):
-            mb_albumartistid.extend([None] * (len(albumartist) - len(mb_albumartistid)))
-        
-        bitrate_mode = BITRATE_MODES.get(getattr(audio.info, 'bitrate_mode', None), None)
-
-        return {
-            'title': title,
-            'artists': list(set(artists)),  # remove duplicate artists
-            'mb_artistids': list(set(mb_artistids)),  # remove duplicate mb_artistids
-            'album': _get_first(audio.get('album', [''])),
-            'mb_albumid': _get_first(audio.get('musicbrainz_albumid', [''])),
-            'albumartist': list(set(albumartist)),  # remove duplicate albumartists 
-            'mb_albumartistid': list(set(mb_albumartistid)),  # remove duplicate mb_albumartistid
-            'year': parse_year(_get_first(audio.get('date', ['']))),
-            'genres': list(set(_get_list('genre'))),  # remove duplicate genres
-            'duration': getattr(audio.info, 'length', 0.0),
-            'bitrate': getattr(audio.info, 'bitrate', 0) // 1000,
-            'bitrate_mode': bitrate_mode,
-            'acoustid_id': _get_first(audio.get('acoustid_id', [''])),
-            'mb_trackid': _get_first(audio.get('musicbrainz_trackid', [''])),
-        }
-    except Exception as e:
-        print(f'Error parsing metadata for {file_path}: {e}')
-        return None
     
 def extract_cover_art_hash(file_path: Path) -> str | None:
     '''only compute the SHA1 value of the embedded cover art, not return image data'''

@@ -18,7 +18,7 @@ from prescan.models import (
 from prescan.checks import get_all_checks
 from prescan.checks.base import Issue
 
-from app.utils.metadata import parse_metadata, easy_metadata, extract_cover_art_hash
+from app.utils.metadata import read_metadata, extract_cover_art_hash
 from app.utils.pinyin import get_artist_sort_fields
 
 COMMIT_BATCH_SIZE = 200
@@ -146,10 +146,7 @@ class InspectScanner:
         cover_hash = None
         error_msg = None
         try:
-            if file_path.suffix.lower() == '.mp3':
-                meta = parse_metadata(file_path)
-            else:
-                meta = easy_metadata(file_path)
+            meta = read_metadata(file_path)
             cover_hash = extract_cover_art_hash(file_path)
         except Exception as e:
             error_msg = str(e)

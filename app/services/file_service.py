@@ -18,7 +18,7 @@ from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, User
-from app.utils.metadata import parse_metadata
+from app.utils.metadata import read_metadata
 from app.utils.pinyin import get_artist_sort_fields
 from app.utils.audiofile import AudioMeta
 
@@ -180,9 +180,9 @@ class ArchiveService:
                 continue
             # 1. extract metadata(used for path generation)
             try:
-                meta = parse_metadata(song_file)
+                meta = read_metadata(song_file)
             except Exception:
-                errors.append({'file': str(song_file), 'error': 'Failed to extract metadata'})
+                errors.append({'file': song_file.name, 'error': 'Failed to extract metadata'})
                 continue
             # 2. recognize the artist_name(used for path generation)
             artist_name = 'Unknown Artist'
@@ -197,14 +197,14 @@ class ArchiveService:
                 target_path = self._generate_target_path(lang, artist_name, meta.get('album'), filename)
                 target_path.parent.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                errors.append({'file': str(song_file), 'error': f'Failed to generate target path: {e}'})
+                errors.append({'file': song_file.name, 'error': f'Failed to generate target path: {e}'})
                 continue
             # 5. move file
             try:
                 shutil.move(str(song_file), str(target_path))
                 results.append((item, target_path)) # item is the relative path
             except Exception as e:
-                errors.append({'file': str(song_file), 'error': f'Failed to move to {str(target_path)}: {e}'})
+                errors.append({'file': song_file.name, 'error': f'Failed to move to {target_path.name}: {e}'})
                 continue
 
             # 6. triggle music file processor(archive to db)
