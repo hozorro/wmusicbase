@@ -14,7 +14,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, Encoding
 from mutagen.apev2 import APEv2, APENoHeaderError
 from app.schemas.filething import FileInfo
-from .metadata import decode_tag_value, parse_metadata, easy_metadata, write_metadata, extract_cover_art_hash
+from .metadata import decode_tag_value, read_metadata, write_metadata, extract_cover_art_hash
 from .common import decode_object, parse_year, parse_multiple_value
 
 _KEY_MAP = {
@@ -47,6 +47,13 @@ class AudioMeta:
         self.meta_encoding = None
         self.meta_version = []
         self._meta_data = None
+        
+        if Path(file_path).suffix.lower() == ".mp3":
+            self.file_type = "mp3"
+        elif Path(file_path).suffix.lower() == ".flac":
+            self.file_type = "flac"
+        else:
+            self.file_type = "NA"
 
         self.init_version()
 
@@ -96,10 +103,7 @@ class AudioMeta:
             'acoustid_id': '',
         }
         try:
-            if Path(self.file_path).suffix.lower() == ".mp3":
-                meta = parse_metadata(Path(self.file_path))
-            else:
-                meta = easy_metadata(Path(self.file_path))
+            meta = read_metadata(self.file_path)
             metadata_primary['title'] = meta.get('title', '')
             metadata_primary['artists'] = meta.get('artists', [])
             metadata_primary['album'] = meta.get('album', '')
@@ -149,6 +153,7 @@ class AudioMeta:
         meta_data = self.meta_data
         return FileInfo(
             path=self.file_path, 
+            file_type=self.file_type,
             encoding=self.meta_encoding, 
             version=self.meta_version,
             meta_id3=meta_data['primary'],
