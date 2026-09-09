@@ -72,6 +72,7 @@ class AdditionalInfo(BaseModel):
 
 class FileInfo(BaseModel):
     path: str
+    file_type: str | None
     encoding: str | None
     version: list[str] | None
     meta_id3: PrimaryInfo | None

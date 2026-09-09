@@ -47,6 +47,13 @@ class AudioMeta:
         self.meta_encoding = None
         self.meta_version = []
         self._meta_data = None
+        
+        if Path(file_path).suffix.lower() == ".mp3":
+            self.file_type = "mp3"
+        elif Path(file_path).suffix.lower() == ".flac":
+            self.file_type = "flac"
+        else:
+            self.file_type = "NA"
 
         self.init_version()
 
@@ -149,6 +156,7 @@ class AudioMeta:
         meta_data = self.meta_data
         return FileInfo(
             path=self.file_path, 
+            file_type=self.file_type,
             encoding=self.meta_encoding, 
             version=self.meta_version,
             meta_id3=meta_data['primary'],

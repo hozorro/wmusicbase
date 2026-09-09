@@ -182,7 +182,7 @@ class ArchiveService:
             try:
                 meta = parse_metadata(song_file)
             except Exception:
-                errors.append({'file': song_file, 'error': 'Failed to extract metadata'})
+                errors.append({'file': str(song_file), 'error': 'Failed to extract metadata'})
                 continue
             # 2. recognize the artist_name(used for path generation)
             artist_name = 'Unknown Artist'
@@ -193,14 +193,18 @@ class ArchiveService:
             # 3. recognize file name(track title first, then the filename)
             filename = (meta.get('title') + song_file.suffix) or song_file.name[33:] # trim the uuid ahead(32 chars)
             # 4. generate target path
-            target_path = self._generate_target_path(lang, artist_name, meta.get('album'), filename)
-            target_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target_path = self._generate_target_path(lang, artist_name, meta.get('album'), filename)
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                errors.append({'file': str(song_file), 'error': f'Failed to generate target path: {e}'})
+                continue
             # 5. move file
             try:
                 shutil.move(str(song_file), str(target_path))
                 results.append((item, target_path)) # item is the relative path
             except Exception as e:
-                errors.append({'file': song_file, 'error': f'Failed to move to {target_path}: {e}'})
+                errors.append({'file': str(song_file), 'error': f'Failed to move to {str(target_path)}: {e}'})
                 continue
 
             # 6. triggle music file processor(archive to db)
