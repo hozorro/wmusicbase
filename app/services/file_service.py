@@ -232,14 +232,14 @@ class ArchiveService:
         # 9. if playlist is not empty, create a json file according to the file target path, 
         # then a playlist can be created according to the json file
         if playlist and results:
-            time = datetime.now().strftime('%Y%m%d%H%M%S')
-            playlist_file = self.settings.PLAYLISTS_TMP_DIR / f'{playlist}_{time}.json'
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            playlist_file = self.settings.PLAYLISTS_TMP_DIR / f'{playlist}_{timestamp}.json'
             playlist_file.write_text(json.dumps(
                 {
                     'title': playlist,
                     'username': self.current_user.username,
                     'source': 'staging',
-                    'time': time,
+                    'time': timestamp,
                     'tracks': [str(filepath.relative_to(Path(self.settings.MUSIC_LIBRARY_PATH))) for _, filepath in results]
                 }, 
                 ensure_ascii=False), encoding='utf-8'
