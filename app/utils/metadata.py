@@ -299,10 +299,11 @@ def extract_embedded_artwork(file_path: str) -> bytes | None:
             apic_keys = [key for key in audio.tags.keys() if key.startswith('APIC:')]
             if apic_keys:
                 return audio.tags[apic_keys[0]].data
-        elif hasattr(audio, 'pictures') and len(audio.pictures) > 0:
+        if hasattr(audio, 'pictures') and len(audio.pictures) > 0:
             return audio.pictures[0].data
     except Exception as e:
-        print(f'Failed to extract cover art from {file_path}: {e}')
+        print(f'Error extracting embedded artwork from {file_path}: {e}')
+        raise Exception(f'Failed to extract cover art from {file_path}: {e}')
     return None
 
 def download_cover_art(release_id) -> bytes | None:

@@ -19,6 +19,7 @@ from app.core.exceptions import BusinessException
 from app.models import Track, track_artists, Artist, Album, Playlist
 from app.core.deps import SettingsDep, DbDep
 from app.core.logger import logger
+from app.utils import image
 from app.utils.metadata import extract_embedded_artwork
 from app.utils.image import resize_image
 from app.utils.common import sanitize_folder_name
@@ -102,7 +103,12 @@ class ArtworkService:
             # (do not rely on track.cover_art_hash here: it is only written
             # after the static file is generated, so it may be None even if
             # the audio file has an embedded cover)
-            image_data = extract_embedded_artwork(str(track_path))
+            image_data = None
+            try:
+                image_data = extract_embedded_artwork(str(track_path))
+            except Exception as e:
+                logger.error(f'Failed to extract embedded artwork from {track_path}.')
+                
             if image_data:
                 # save as jpeg file(unified image size)
                 img_path = await self._save_artwork_to_cache(track_id, 'track', image_data)
@@ -138,11 +144,12 @@ class ArtworkService:
         # 1. remove old static file (track artwork is always overwritten)
         self.invalidate_artwork_cache(track_id, 'track')
         # 2. regenerate
-        await self.get_or_cache_track_artwork(track_id)
+        cache_path = await self.get_or_cache_track_artwork(track_id)
         # 3. update hash according to the static file existence
-        static_path = self.settings.TRACK_ARTWORK_DIR / f'{track_id}.jpg'
-        track.cover_art_hash = self.compute_file_hash(static_path) if static_path.exists() else None
-        return track.cover_art_hash
+        if cache_path:
+            track.cover_art_hash = self.compute_file_hash(cache_path)
+            return track.cover_art_hash
+        return None
 
     async def ensure_album_artwork(self, album_id: int) -> str | None:
         '''
@@ -239,10 +246,10 @@ class ArtworkService:
         if cache_path.exists():
             try:
                 cache_path.unlink()
-                logger.info(f'Invalidated artwork cache for track {id}')
+                logger.info(f'Invalidated artwork cache for {art_type} {id}')
                 return True
             except Exception as e:
-                logger.error(f'Failed to delete artwork cache for track {id}: {e}')
+                logger.error(f'Failed to delete artwork cache for {art_type} {id}: {e}')
                 return False
         return False
 
