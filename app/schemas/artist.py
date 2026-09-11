@@ -29,6 +29,8 @@ class ArtistArtUpdate(BaseModel):
     art_type: str
 
 class ArtistResponse(ArtistBase):
+    face_art_hash: str | None
+    portrait_art_hash: str | None
     main_albums: list[AlbumBase]
     track_albums: list[AlbumBase]
 

@@ -135,6 +135,8 @@ class ArtistService:
         return {
             'id': artist.id,
             'name': artist.name,
+            'face_art_hash': artist.face_art_hash,
+            'portrait_art_hash': artist.portrait_art_hash,
             'main_albums': main_albums,
             'track_albums': track_albums,
         }
