@@ -413,8 +413,8 @@ class ArtworkService:
         selected_path = artist_dir / filename
         if not selected_path.exists():
             raise ValueError(f'Candidate file not found: {filename}')
-        face_path = artist_dir / f'{art_type}_1.jpg'
-        if face_path.exists() and selected_num != 1:
+        first_path = artist_dir / f'{art_type}_1.jpg'
+        if first_path.exists() and selected_num != 1:
             # need to move current _1 out of the way
             existing_numbers = []
             for entry in artist_dir.iterdir():
@@ -422,19 +422,17 @@ class ArtworkService:
                     m = pattern.match(entry.name)
                     if m:
                         existing_numbers.append(int(m.group(1)))
-            # remove selected_num from the list (it will be renamed to _1)
-            existing_numbers.remove(selected_num)
             # find lowest gap for the displaced _1
             gap_num = self._find_lowest_available_number(existing_numbers)
             # rename current _1 to the gap position
-            shutil.move(str(face_path), str(artist_dir / f'{art_type}_{gap_num}.jpg'))
+            shutil.move(str(first_path), str(artist_dir / f'{art_type}_{gap_num}.jpg'))
         # rename selected candidate to _1 (skip if already _1)
         if selected_num != 1:
-            shutil.move(str(selected_path), str(face_path))
+            shutil.move(str(selected_path), str(first_path))
         # invalidate old cache
         self.invalidate_artwork_cache(artist_id, 'artist', art_type)
         # save new _1 to cache and compute hash from the static file
-        cache_path = await self._save_artwork_to_cache(artist_id, 'artist', face_path, art_type)
+        cache_path = await self._save_artwork_to_cache(artist_id, 'artist', first_path, art_type)
         cover_art_hash = self.compute_file_hash(cache_path) if cache_path else None
         if art_type == 'face':
             artist.face_art_hash = cover_art_hash
