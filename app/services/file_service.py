@@ -186,10 +186,10 @@ class ArchiveService:
                 continue
             # 2. recognize the artist_name(used for path generation)
             artist_name = 'Unknown Artist'
-            if meta['artists']:
-                artist_name = meta['artists'][0]
-            elif meta.get('albumartist'):
+            if meta.get('albumartist'):
                 artist_name = meta['albumartist'][0]
+            elif meta['artists']:
+                artist_name = meta['artists'][0]
             # 3. recognize file name(track title first, then the filename)
             filename = (meta.get('title') + song_file.suffix) or song_file.name[33:] # trim the uuid ahead(32 chars)
             # 4. generate target path

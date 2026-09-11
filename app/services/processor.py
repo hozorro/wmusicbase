@@ -115,6 +115,20 @@ class MusicFileProcessor:
         result = await self.db.execute(select(Album).where(Album.title == title, Album.album_artist_id == album_artist.id))
         album = result.scalar_one_or_none()
         if album: 
+            # if mbid or year is different and not None, 
+            # update it in database, 
+            # this may happen when the album is created by file 
+            # with missing mbid or year at first, 
+            # then updated by another file with mbid or year later.
+            updated = False
+            if album.year != year and year is not None:
+                album.year = year
+                updated = True
+            if album.mb_albumid != mbid and mbid is not None: 
+                album.mb_albumid = mbid
+                updated = True
+            if updated: 
+                await self.db.flush() 
             self.album_cache[(title, album_artist.id)] = album
             return album
 
