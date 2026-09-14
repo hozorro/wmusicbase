@@ -9,16 +9,17 @@
 '''
 
 
-from this import d
 
+import json
+import re
 import httpx
-from pathlib import Path
-from sqlalchemy import select, or_, and_, func
+from urllib.parse import urlparse, parse_qs
+from sqlalchemy import select, or_, func
 from sqlalchemy.orm import selectinload, joinedload, load_only
 from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
-from app.models import Track, Artist, Album, Playlist, PlaylistTrack
+from app.models import Track, Artist, Album, Playlist
 from app.schemas.netease import (
     NeteaseTrackInfo,
     NeteasePlaylistResponse,
@@ -38,29 +39,13 @@ DEFAULT_COOKIES = {
     "osver": "",
     "deviceId": "pyncm!"
 }
-cookies = {
-    '_iuqxldmzr_': '32', 
-    '_ntes_nuid': 'b374451bc0d9b0ec930f5c49e1d2b580', 
-    'WEVNSM': '1.0.0', 
-    'WM_TID': r'S7Y7kKyLypxFREVVAQKSAs%2FyFAVNdenu', 
-    'ntes_utid': r'tid._.ksN07W%252BoT2hBRlUUAFbXA5%252F3BVBIbRgx._.0', 
-    '_ntes_nnid': 'b374451bc0d9b0ec930f5c49e1d2b580,1758941281373', 
-    '__snaker__id': 'RTkMng4YCAfClhXt', 
-    'NMTID': '00O73bUcJ2i14yYVknuhHIeQzW_b5cAAAGgj6LbvA', 
-    'WNMCID': 'wmhram.1789116211946.01.0', 
-    'sDeviceId': 'YD-aQgevZVspqZBQ0RUUBeSUou3BAUNaF18', 
-    'gdxidpyhxdE': r'3V%2FL3%2BDe%2B21QxEebVL5D7eNL4Anu8AogqOqufWKnEh%5CmWJH7G7EZ0gG65HexG4XlDO0GLRAW1pS1NPcEwGDOC%2Frtm1TSOzDVGm359k9SE1Tug%2F0aosbN8r0bTWO%5Cl61etTMbCviVxMkOVyE2RWvwLx8s%2BSLTZyigsPXKp716bj%2BwKcPe%3A1789117116345', 
-    '__csrf': '272d719232e7fb0d355491a732e0c203', 
-    'MUSIC_U': '00641C69348F0E0E4622B340A37AD7A078C203FD69443995BD2ADC228034C76E5ACD0A9CAFF5C87D1C68556A5A9B29D432566ADE60751CC6E62FA314033A37C53D1DB948C727BA202426F16D9C59CE8096FF99F54141D414D271E80407BF2D50E951E355296F776AF5C3610109232A50284FD3CA4CD5BBF5E108D5232DA45874E9EA0EB80D384D09E82097E4750F34551E34C888C17011B8E22A1472E3D7FEC5A44E25EDFD40FC7EFB46B470869717C81D8C0488AAE1D6FDDBA3871DFD8829227198C69E19B1AA32E199F8C4EFDF259DA3B478D27C28D7872CA03FCE92CDA410BB888A7258EA4490B2016D48AAB8011ECFF08D01936A843CDD805F93B2B6E405409D96AEF5ACD1B07A97805B57AA38560EF4A227641495D12407683179F43A6E5F0D9391507EA58C0C588FBF3EBA6CF9AC5169270FF72731C7BD67893631A9C886EAFE931B0C7DDF87A2302C4644F7781B27F3523A1C95ADAC93F71206FC45CC2C5480833F3FC5432D10C9E6B5F6C94FA9E61A772ADBCECFCCABA47C70CB021AE6D4B23B28A742F8F7FA058654114E2B9D8F7C29612E8303458941BA2D58DDBCB5', 
-    'ntes_kaola_ad': '1', 
-    'WM_NI': r'3hIsmZjPlTqen%2B6UUwOZak%2F3brNTaueCbzvirgTInV7wS4yjFZnhpV6M3OzQceuFprdRfZKZNWw0lhF1Lx8xH7uhQsX8Sv7mIgMe5Gsz4lQsyWCp%2FCFyBNVsdguK6Fu5NWc%3D', 
-    'WM_NIKE': '9ca17ae2e6ffcda170e2e6eed1c67fa88dbc92b621b8eb8ea7c14a928a9fb0c95a8f94869be87fb486e1d4db2af0fea7c3b92af1b88794f052aa90a4b5f46faef5fab6d87d8d86af8cae39a2ae82b5e47fa79dae9bf563b2b99caaed5ef5a99dd5fc628686a289f35ef693fdb0f95ba1bbbba7f37aa88eaabbca528e89b9d1ef6486ef8499bb748ce9bb89d4799ce89d97b6678bb98386b84db1a6fc8dd479bb898d91ae4986a78eafd579a8b9bbacb54eb7eb82b8e237e2a3', 
-    'JSESSIONID-WYYY': r'wrWeXd4arHeFJWDAG%5CQIHMDPdxy1y3Osztiuus4fOXd5m1NCVP5rNdsVRSG0sNg%5CsimUWpYaQ7JQMfjGDl%2BSXgh09f0pz7ruMe2%2FU%5CZF%5Ca2ZIMeS5pTH3CEP1TmGNR29BQi1XtR7%2FGzBdfek8pQNX%5CWhaPssgM6stDbodti%2B9pjDbDtO%3A1789357472417', 
-    'Hm_lvt_1483fb4774c02a30ffa6f0e2945e9b70': '1789116211,1789209365,1789301614,1789355673', 
-    'HMACCOUNT': '1063F49E9A872DB5', 
-    'Hm_lpvt_1483fb4774c02a30ffa6f0e2945e9b70': '1789355675'
-}
+SONG_DETAIL_API = "https://interface3.music.163.com/api/v3/song/detail"
+PLAYLIST_DETAIL_API = "https://music.163.com/api/v6/playlist/detail"
 
+def load_cookies(cookie_file: str):
+    with open(cookie_file, 'r') as f:
+        cookies = json.load(f)
+    return cookies
 
 class NeteaseService:
     '''netease playlist import service'''
@@ -68,7 +53,68 @@ class NeteaseService:
     def __init__(self, db: DbDep, settings: SettingsDep):
         self.db = db
         self.settings = settings
-        self.api_base = 'https://music.163.com/api/v6/playlist/detail'
+
+        self.cookies = load_cookies(self.settings.NETEASE_COOKIES_FILE)
+    
+    @staticmethod
+    async def extract_playlist_id(share_text: str) -> str | None:
+        """
+        从网易云音乐分享文本中提取歌单 ID。
+
+        Args:
+            share_text: 类似 "分享歌单: 震撼音乐 https://163cn.tv/bglqb7KP (@网易云音乐)"
+
+        Returns:
+            歌单 ID 字符串，失败返回 None。
+        """
+        # 1. 提取短链接
+        url_pattern = r'https?://163cn\.tv/[A-Za-z0-9]+'
+        match = re.search(url_pattern, share_text)
+        if not match:
+            logger.warning(f'未在分享文本中找到有效的 163cn.tv 短链接: {share_text}')
+            return None
+        short_url = match.group(0)
+
+        # 2. 还原真实地址
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                # 使用 HEAD 方法仅获取响应头，跟随重定向以拿到最终 URL
+                resp = await client.head(short_url, headers=headers)
+                final_url = str(resp.url)
+        except Exception as e:
+            logger.error(f'短链接解析失败: {e}')
+            return None
+
+        # 某些短链可能不通过 HTTP 重定向跳转（如 JS 跳转），此时 final_url 仍为短链
+        if final_url == short_url:
+            # 回退：用 GET 请求，从响应体中查找真实链接
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(short_url, headers=headers)
+                    # 尝试从 HTML 或 JS 中提取 music.163.com 链接
+                    fallback = re.search(r'https?://music\.163\.com/[^\s"\'<>]+', resp.text)
+                    if fallback:
+                        final_url = fallback.group(0)
+                    else:
+                        logger.warning('未能从短链接响应中解析出真实地址')
+                        return None
+            except Exception as e:
+                logger.error(f'短链接 GET 请求失败: {e}')
+                return None
+
+        # 3. 从 URL 中提取 id 参数
+        parsed = urlparse(final_url)
+        query = parse_qs(parsed.query)
+        playlist_id = query.get('id', [None])[0]
+
+        if playlist_id:
+            return playlist_id
+        else:
+            return None
 
     async def fetch_playlist(self, playlist_id: int) -> NeteasePlaylistResponse:
         '''
@@ -81,17 +127,17 @@ class NeteaseService:
             BusinessException: when api request fails or playlist not found
         '''
         # url = f'{self.api_base}?id={playlist_id}'
+        headers = {
+            'User-Agent': USER_AGENT,
+            'Referer': REFERER,
+            'Accept': '*/*',
+        }
+        request_cookies = DEFAULT_COOKIES.copy()
+        request_cookies.update(self.cookies)
+        
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # response = await client.get(url)
-                headers = {
-                    'User-Agent': USER_AGENT,
-                    'Referer': REFERER,
-                    'Accept': '*/*',
-                }
-                request_cookies = DEFAULT_COOKIES.copy()
-                request_cookies.update(cookies)
-                response = await client.post(self.api_base, data={'id': playlist_id}, cookies=request_cookies)
+                response = await client.post(self.settings.NETEASE_PLAYLIST_API, data={'id': playlist_id}, headers=headers, cookies=request_cookies, timeout=30)
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as e:
@@ -135,28 +181,30 @@ class NeteaseService:
 
         # parse tracks
         tracks = []
-        for track_data in playlist_data.get('tracks', []):
-            # parse artists
-            artists = [ar.get('name', '') for ar in track_data.get('ar', [])]
-            # parse album
-            album = track_data.get('al', {}).get('name', '')
-            # parse duration
-            duration = track_data.get('dt', 0)
-            # parse mainTitle (use name as fallback if mainTitle is empty)
-            main_title = track_data.get('mainTitle')
-            if main_title and main_title.strip():
-                main_title = main_title.strip()
-            else:
-                main_title = None
-
-            tracks.append(NeteaseTrackInfo(
-                id=track_data.get('id', 0),
-                name=track_data.get('name', ''),
-                mainTitle=main_title,
-                artists=artists,
-                album=album,
-                duration=duration
-            ))
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                track_ids = [str(t['id']) for t in playlist_data.get('trackIds', [])]
+                for i in range(0, len(track_ids), 100):
+                    batch_ids = track_ids[i:i+100]
+                    song_data = {'c': json.dumps([{'id': int(sid), 'v': 0} for sid in batch_ids])}
+                    song_resp = await client.post(self.settings.NETEASE_SONG_API, data=song_data, headers=headers, cookies=request_cookies, timeout=30)
+                    song_resp.raise_for_status()
+                    song_result = song_resp.json()
+                    for song in song_result.get('songs', []):
+                        tracks.append({
+                            'id': song['id'],
+                            'name': song['name'],
+                            'mainTitle': song['mainTitle'],
+                            'artists': [ar['name'] for ar in song['ar']],
+                            'album': song['al']['name'],
+                            'duration': song['dt'],
+                        })
+        except Exception as e:
+            raise BusinessException(
+                code=30605,
+                msg='netease api request failed: song data processing error',
+                status_code=502
+            )
 
         return NeteasePlaylistResponse(
             id=playlist_data.get('id', playlist_id),

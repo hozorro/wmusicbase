@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, status
 from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel
 from app.schemas.netease import (
+    NeteaseFetchRequest,
     NeteasePlaylistResponse,
     NeteaseMatchRequest,
     NeteaseMatchResponse,
@@ -25,19 +26,40 @@ from app.services.playback_service import PlaylistService
 router = APIRouter()
 
 
-@router.get('/playlist/{playlist_id}', response_model=ResponseModel[NeteasePlaylistResponse])
+@router.post('/playlist', response_model=ResponseModel[NeteasePlaylistResponse])
 async def get_netease_playlist(
-    playlist_id: int,
+    data: NeteaseFetchRequest,
     service: NeteaseService = Depends(NeteaseService)
 ):
     '''
-    fetch netease playlist info by id
+    fetch netease playlist info by id or share text
 
-    - **playlist_id**: netease playlist id
+    - **playlist_id**: netease playlist id (optional if share_text provided)
+    - **share_text**: netease share text like "分享歌单: 震撼音乐 https://163cn.tv/bglqb7KP (@网易云音乐)" (optional if playlist_id provided)
 
     Returns playlist info including name, cover image URL, and track list.
     Each track contains: name, artists, album, duration.
     '''
+    # validate input: at least one parameter must be provided
+    if data.playlist_id:
+        playlist_id = data.playlist_id
+    else:
+        if data.share_text:
+            extracted_id = await NeteaseService.extract_playlist_id(data.share_text)
+            if not extracted_id:
+                raise BusinessException(
+                    code=30606,
+                    msg='failed to extract playlist id from share text',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            playlist_id = int(extracted_id)
+        else:
+            raise BusinessException(
+                code=30600,
+                msg='either playlist_id or share_text must be provided',
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
     result = await service.fetch_playlist(playlist_id)
     return ResponseModel(data=result)
 

@@ -15,6 +15,12 @@ from datetime import datetime
 
 # ============ Netease Playlist Fetch ============
 
+class NeteaseFetchRequest(BaseModel):
+    '''fetch playlist request'''
+    playlist_id: int | None = Field(None, description='Netease playlist id')
+    share_text: str | None = Field(None, description='Netease share text with short url')
+
+
 class NeteaseTrackInfo(BaseModel):
     '''netease track info'''
     id: int = Field(..., description='Netease track id')
