@@ -39,8 +39,6 @@ DEFAULT_COOKIES = {
     "osver": "",
     "deviceId": "pyncm!"
 }
-SONG_DETAIL_API = "https://interface3.music.163.com/api/v3/song/detail"
-PLAYLIST_DETAIL_API = "https://music.163.com/api/v6/playlist/detail"
 
 def load_cookies(cookie_file: str):
     with open(cookie_file, 'r') as f:
@@ -59,39 +57,38 @@ class NeteaseService:
     @staticmethod
     async def extract_playlist_id(share_text: str) -> str | None:
         """
-        从网易云音乐分享文本中提取歌单 ID。
+        Extract playlist ID from netease music share text.
 
         Args:
-            share_text: 类似 "分享歌单: 震撼音乐 https://163cn.tv/bglqb7KP (@网易云音乐)"
+            share_text: similar to "分享歌单: 震撼音乐 https://163cn.tv/bglqb7KP (@网易云音乐)"
 
         Returns:
-            歌单 ID 字符串，失败返回 None。
+            Playlist ID string, returns None on failure.
         """
-        # 1. 提取短链接
+        # 1. Extract short link
         url_pattern = r'https?://163cn\.tv/[A-Za-z0-9]+'
         match = re.search(url_pattern, share_text)
         if not match:
-            logger.warning(f'未在分享文本中找到有效的 163cn.tv 短链接: {share_text}')
+            logger.warning(f'Valid 163cn.tv short link not found in share text: {share_text}')
             return None
         short_url = match.group(0)
 
-        # 2. 还原真实地址
+        # 2. Restore the real address
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': USER_AGENT,
         }
         try:
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                # 使用 HEAD 方法仅获取响应头，跟随重定向以拿到最终 URL
+                # Use HEAD method to only get the response header, follow redirects to get the final URL
                 resp = await client.head(short_url, headers=headers)
                 final_url = str(resp.url)
         except Exception as e:
-            logger.error(f'短链接解析失败: {e}')
+            logger.error(f'Short link parsing failed: {e}')
             return None
 
-        # 某些短链可能不通过 HTTP 重定向跳转（如 JS 跳转），此时 final_url 仍为短链
+        # Some short links may not redirect via HTTP (e.g., JS redirect), in which case final_url will still be the short link
         if final_url == short_url:
-            # 回退：用 GET 请求，从响应体中查找真实链接
+            # Fallback: Use GET request to find the real link from the response body
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.get(short_url, headers=headers)
@@ -100,13 +97,13 @@ class NeteaseService:
                     if fallback:
                         final_url = fallback.group(0)
                     else:
-                        logger.warning('未能从短链接响应中解析出真实地址')
+                        logger.warning('Failed to parse the real address from the short link response')
                         return None
             except Exception as e:
-                logger.error(f'短链接 GET 请求失败: {e}')
+                logger.error(f'Short link GET request failed: {e}')
                 return None
 
-        # 3. 从 URL 中提取 id 参数
+        # 3. Extract id parameter from the URL
         parsed = urlparse(final_url)
         query = parse_qs(parsed.query)
         playlist_id = query.get('id', [None])[0]
@@ -143,21 +140,21 @@ class NeteaseService:
         except httpx.HTTPStatusError as e:
             logger.error(f'Netease API HTTP error: {e.response.status_code} for playlist {playlist_id}')
             raise BusinessException(
-                code=30601,
+                code=30521,
                 msg=f'netease api request failed: {e.response.status_code}',
                 status_code=502
             )
         except httpx.RequestError as e:
             logger.error(f'Netease API request error: {e} for playlist {playlist_id}')
             raise BusinessException(
-                code=30602,
+                code=30522,
                 msg='netease api request failed: network error',
                 status_code=502
             )
         except Exception as e:
             logger.error(f'Netease API unexpected error: {e} for playlist {playlist_id}')
             raise BusinessException(
-                code=30603,
+                code=30523,
                 msg='netease api request failed: unknown error',
                 status_code=502
             )
@@ -166,7 +163,7 @@ class NeteaseService:
         if data.get('code') != 200:
             logger.warning(f'Netease playlist {playlist_id} not found or error: {data}')
             raise BusinessException(
-                code=30604,
+                code=30524,
                 msg='playlist not found on netease',
                 status_code=404
             )
@@ -174,7 +171,7 @@ class NeteaseService:
         playlist_data = data.get('playlist', {})
         if not playlist_data:
             raise BusinessException(
-                code=30604,
+                code=30524,
                 msg='playlist not found on netease',
                 status_code=404
             )
@@ -201,7 +198,7 @@ class NeteaseService:
                         })
         except Exception as e:
             raise BusinessException(
-                code=30605,
+                code=30525,
                 msg='netease api request failed: song data processing error',
                 status_code=502
             )

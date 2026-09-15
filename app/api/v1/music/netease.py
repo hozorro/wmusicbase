@@ -48,14 +48,14 @@ async def get_netease_playlist(
             extracted_id = await NeteaseService.extract_playlist_id(data.share_text)
             if not extracted_id:
                 raise BusinessException(
-                    code=30606,
+                    code=30526,
                     msg='failed to extract playlist id from share text',
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             playlist_id = int(extracted_id)
         else:
             raise BusinessException(
-                code=30600,
+                code=30520,
                 msg='either playlist_id or share_text must be provided',
                 status_code=status.HTTP_400_BAD_REQUEST
             )
@@ -107,7 +107,7 @@ async def create_playlist_from_netease(
         )
     except Exception as e:
         raise BusinessException(
-            code=30610,
+            code=30527,
             msg=f'error when create playlist: {str(e)}',
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
