@@ -157,6 +157,11 @@ class Settings(BaseSettings):
     DASHSCOPE_BASE_URL: str = Field('https://dashscope.aliyuncs.com/api/v1', description='AI api url')
     AI_MODEL_NAME: str = Field('qwen3.6-flash', description='AI model name')
 
+    # ========== Netease music config ===========
+    NETEASE_COOKIES_FILE: str = Field('netease_cookies.json', description='Netease cookies file')
+    NETEASE_PLAYLIST_API: str = Field(..., description='Netease playlist api')
+    NETEASE_SONG_API: str = Field(..., description='Netease song api')
+
     # ========== Other variables ========
     MAX_UPDATE_META_BATCH_COUNT: int = Field(20, description='max batch count of items to update metadata')
     

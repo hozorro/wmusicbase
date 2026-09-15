@@ -166,6 +166,7 @@ libchromaprint.*
 inspect_result.db
 *.db-shm
 *.db-wal
+netease_cookies.json
 
 # test stuff
 tests/

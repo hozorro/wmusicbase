@@ -70,16 +70,17 @@ class PlaylistService:
 
             # 2. bind tracks
             missing = []
+            tracks_set = set(tracks)
             if tracks:
                 if isinstance(tracks[0], str):  # path
-                    tracks, missing = await self._get_tracks_by_paths(tracks)
+                    valid_tracks, missing = await self._get_tracks_by_paths(tracks_set)
                     playlist_tracks = [
                         PlaylistTrack(
                             playlist_id=playlist.id,
                             track_id=track.id,
                             position=index
                         )
-                        for index, track in enumerate(tracks)
+                        for index, track in enumerate(valid_tracks)
                     ]
                 else:
                     playlist_tracks = [
@@ -88,9 +89,9 @@ class PlaylistService:
                             track_id=id,
                             position=index
                         )
-                        for index, id in enumerate(tracks)
+                        for index, id in enumerate(tracks_set)
                     ]
-                await self.db.execute(PlaylistTrack.insert().values(playlist_tracks))
+                self.db.add_all(playlist_tracks)
 
             await self.db.commit()
             await self.db.refresh(playlist)
