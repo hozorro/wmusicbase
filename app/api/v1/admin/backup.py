@@ -10,48 +10,61 @@
 
 
 import json
-from io import StringIO
+from io import StringIO, BytesIO
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import StreamingResponse
 from app.core.deps import SettingsDep, ADMIN_DEPS
 from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel, SuccessMsgModel
-from app.schemas.filething import PlaylistJsonListResponse
+from app.schemas.filething import PlaylistJsonListResponse, PlaylistBackupResponse
 from app.schemas.playback import ImportJsonUpload, PlaylistJsonUpload, JsonImportResponse
-from app.schemas.user import UserResponse
+from app.schemas.user import UserDetail, UserResponse
 from app.services.playback_service import PlaylistService, PlayDataService
 from app.services.user_service import UserService
 
 router = APIRouter(dependencies=ADMIN_DEPS)
 
-@router.get('/gettempplaylistjsons', response_model=ResponseModel[PlaylistJsonListResponse])
+@router.get('/gettmpplaylistjsons', response_model=ResponseModel[PlaylistBackupResponse])
 async def get_temp_playlist_jsons(settings: SettingsDep, service: PlaylistService = Depends(PlaylistService)):
     playlists = []
     for json_file in settings.PLAYLISTS_TMP_DIR.glob('*.json'):
         playlist = await service.parse_playlist_json_file(json_file)
         playlists.append(playlist)
-    return ResponseModel(data=PlaylistJsonListResponse.model_validate(playlists))
+    return ResponseModel(data=PlaylistBackupResponse.model_validate(playlists))
 
-@router.get('/getcurplaylists', response_model=ResponseModel[PlaylistJsonListResponse])
+@router.get('/getcurplaylists', response_model=ResponseModel[PlaylistBackupResponse])
 async def get_cur_playlists(service: PlaylistService = Depends(PlaylistService)):
     playlists = await service.get_user_playlists_info()
-    return ResponseModel(data=PlaylistJsonListResponse.model_validate(playlists))
+    return ResponseModel(data=PlaylistBackupResponse.model_validate(playlists))
 
-@router.get('/getallplaylists', response_model=ResponseModel[PlaylistJsonListResponse])
+@router.get('/getallplaylists', response_model=ResponseModel[PlaylistBackupResponse])
 async def get_all_playlists(service: PlaylistService = Depends(PlaylistService)):
     playlists = await service.get_user_playlists_info(all_user=True)
-    return ResponseModel(data=PlaylistJsonListResponse.model_validate(playlists))
+    return ResponseModel(data=PlaylistBackupResponse.model_validate(playlists))
 
 @router.post('/createplaylistfromjson', response_model=ResponseModel[SuccessMsgModel])
 async def create_playlist_from_json(filename: str, service: PlaylistService = Depends(PlaylistService)):
     result = await service.create_playlist_from_json(filename)
     return ResponseModel(data=SuccessMsgModel(info=result))
     
-@router.post('/backupplaylist', response_model=ResponseModel[SuccessMsgModel])
+@router.get('/backupplaylist', response_class=StreamingResponse)
 async def backup_playlist(playlist_id: int, service: PlaylistService = Depends(PlaylistService)):
     try:
-        await service.backup_user_playlist_to_json(playlist_id)
-        return ResponseModel(data=SuccessMsgModel(info='backup successfully'))
+        data = await service.get_playlist_data(playlist_id)
+        json_string = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
+        json_bytes = json_string.encode('utf-8')
+        
+        buffer = BytesIO(json_bytes)
+        
+        return StreamingResponse(
+            content=buffer,
+            media_type='application/json',
+            headers={
+                'Content-Disposition': f'attachment; filename="playlist_{playlist_id}.json"',
+                'Content-Length': str(len(json_bytes)),
+                'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+            }
+        )
     except Exception as e:
         raise BusinessException(
             code=70501, 
@@ -73,65 +86,81 @@ async def delete_playlist_json(filename: str, settings: SettingsDep):
     json_file.unlink()
     return ResponseModel(data=SuccessMsgModel(info='successfully deleted'))
 
-@router.get('/getuserlist', response_model=ResponseModel[list[UserResponse]])
+@router.get('/getuserlist', response_model=ResponseModel[list[UserDetail]])
 async def get_user_list(service: UserService = Depends(UserService)):
     users = await service.get_user_list()
-    return ResponseModel(data=[UserResponse.model_validate(u) for u in users])
+    return ResponseModel(data=[UserDetail.model_validate(u) for u in users])
 
 @router.get('/exportuserplaylistdata', response_class=StreamingResponse)
-async def export_user_playlist_data(user_id: int, service: PlayDataService = Depends(PlayDataService)):
-    data = await service.get_user_playlist_data(user_id)
-    json_string = json.dumps(data, ensure_ascii=False, sort_keys=False)
+async def export_user_playlist_data(user_id: int, service: PlaylistService = Depends(PlaylistService)):
+    try:
+        data = await service.get_user_playlist_data(user_id)
+        json_string = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
+        json_bytes = json_string.encode('utf-8')
+        
+        buffer = BytesIO(json_bytes)
 
-    buffer = StringIO()
-    buffer.write(json_string)
-    buffer.seek(0)
-
-    filename = f'user_playlist_data_{data['user']}(id_{user_id}).json'
-    return StreamingResponse(
-        content=buffer,
-        media_type='application/json',
-        headers={
-            'Content-Disposition': f'attachment; filename="{filename}"',
-            'Content-Length': str(len(buffer.getvalue()))
-        }
-    )
+        filename = f'user_{user_id}_playlists.json'
+        return StreamingResponse(
+            content=buffer,
+            media_type='application/json',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(len(json_bytes)),
+                'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+            }
+        )
+    except Exception as e:
+        raise BusinessException(
+            code=70503, 
+            msg=f'user playlists backup error: {str(e)}', 
+            detail={'user_id': user_id}, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @router.get('/exportuserhitdata', response_class=StreamingResponse)
 async def export_user_hit_data(user_id: int, service: PlayDataService = Depends(PlayDataService)):
-    data = await service.get_user_hits_data(user_id)
-    json_string = json.dumps(data, ensure_ascii=False, sort_keys=False)
+    try:
+        data = await service.get_user_track_hits_data(user_id)
+        json_string = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
+        json_bytes = json_string.encode('utf-8')
+        
+        buffer = BytesIO(json_bytes)
 
-    buffer = StringIO()
-    buffer.write(json_string)
-    buffer.seek(0)
-
-    filename = f'user_hit_data_{data['user']}(id_{user_id}).json'
-    return StreamingResponse(
-        content=buffer,
-        media_type='application/json',
-        headers={
-            'Content-Disposition': f'attachment; filename="{filename}"',
-            'Content-Length': str(len(buffer.getvalue()))
-        }
-    )
+        filename = f'user_{user_id}_hit.json'
+        return StreamingResponse(
+            content=buffer,
+            media_type='application/json',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(len(json_bytes)),
+                'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+            }
+        )
+    except Exception as e:
+        raise BusinessException(
+            code=70502, 
+            msg=f'user hits data backup error: {str(e)}', 
+            detail={'user_id': user_id}, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @router.get('/exportuserfavdata', response_class=StreamingResponse)
 async def export_user_fav_data(user_id: int, service: PlayDataService = Depends(PlayDataService)):
-    data = await service.get_user_favorites_data(user_id)
-    json_string = json.dumps(data, ensure_ascii=False, sort_keys=False)
+    data = await service.get_user_track_favorites_data(user_id)
+    json_string = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
+    json_bytes = json_string.encode('utf-8')
+    
+    buffer = BytesIO(json_bytes)
 
-    buffer = StringIO()
-    buffer.write(json_string)
-    buffer.seek(0)
-
-    filename = f'user_fav_data_{data['user']}(id_{user_id}).json'
+    filename = f'user_{user_id}_fav_data.json'
     return StreamingResponse(
         content=buffer,
         media_type='application/json',
         headers={
             'Content-Disposition': f'attachment; filename="{filename}"',
-            'Content-Length': str(len(buffer.getvalue()))
+            'Content-Length': str(len(json_bytes)),
+            'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
         }
     )
 
@@ -141,11 +170,11 @@ async def import_playlist_data(
     service: PlayDataService = Depends(PlayDataService)
 ):
     file = item.file
-    is_update = item.is_update
+    mode = item.mode
     # 1. 校验文件
     data = await service.validate_upload_file(file, 'playlists')
     # 2. 导入数据
-    result = await service.import_playlist_from_json(item.user_id, data, is_update)
+    result = await service.import_playlist_from_json(item.user_id, data, mode)
     return ResponseModel(data=JsonImportResponse.model_validate(result))
 
 @router.post('/importhitdata', response_model=ResponseModel[JsonImportResponse])
@@ -164,6 +193,6 @@ async def import_fav_data(
     service: PlayDataService = Depends(PlayDataService)
 ):
     file = item.file
-    data = await service.validate_upload_file(file, 'favs')
+    data = await service.validate_upload_file(file, 'favorites')
     result = await service.import_fav_from_json(item.user_id, data)
     return ResponseModel(data=JsonImportResponse.model_validate(result))

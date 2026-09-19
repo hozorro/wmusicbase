@@ -11,7 +11,7 @@
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from . import TrackHit, TrackFav, ArtistFav, ArtistHit, Playlist, PlaylistHit, SyncMeta
+    from . import TrackHit, TrackFav, ArtistFav, ArtistHit, Playlist, PlaylistHit
 
 from sqlalchemy import String, Boolean, ForeignKey, TIMESTAMP, func, Index
 from sqlalchemy.orm import relationship, Mapped, mapped_column
@@ -34,7 +34,6 @@ class User(Base, DateTimeMixin):
     artist_hits: Mapped[list['ArtistHit']] = relationship('ArtistHit', back_populates='user')
     playlists: Mapped[list['Playlist']] = relationship('Playlist', back_populates='user')
     playlist_hits: Mapped[list['PlaylistHit']] = relationship('PlaylistHit', back_populates='user')
-    sync_meta: Mapped['SyncMeta'] = relationship('SyncMeta', back_populates='user')
 
     tokens: Mapped[list['UserToken']] = relationship('UserToken', back_populates='user', cascade='all, delete-orphan')
 

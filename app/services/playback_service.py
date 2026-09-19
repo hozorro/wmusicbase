@@ -12,6 +12,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
+from typing import Literal
 from fastapi import Request, UploadFile, status
 from sqlalchemy import select, update, delete, insert, func, desc
 from sqlalchemy.orm import selectinload, joinedload, load_only
@@ -20,8 +21,6 @@ from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, Artist, Album, Playlist, PlaylistTrack, PlaylistHit, TrackHit, TrackFav, ArtistFav, ArtistHit, User
-from app.services.user_service import UserService
-from app.services.sync import Syncer
 from app.schemas.playback import PlaylistImportRoot, HitImportRoot, FavImportRoot
 
 class PlaylistService:
@@ -96,8 +95,6 @@ class PlaylistService:
             await self.db.commit()
             await self.db.refresh(playlist)
             logger.info(f"playlist successfully created: ID={playlist.id}, title={playlist.title}, track count={len(tracks)}")
-            syncer = Syncer(self.db, self.settings)
-            await syncer.update_playback_sync_meta('playlist', self.current_user_id)
             
             if missing:
                 msg = f"partially success: title={playlist.title}, track count={len(tracks)}, some track not exist in db or be deleted: {', '.join(missing)}"
@@ -139,29 +136,94 @@ class PlaylistService:
         return playlist
     
     async def get_user_playlists_info(self, all_user: bool = False) -> list[dict]:
-        '''get user playlists, only for backend, tracks show as path'''
+        '''get user playlists, only for backend show'''
         playlists = []
         stmt = select(Playlist)
         if not all_user:
-            stmt = stmt.where(Playlist.user_id == self.current_user_id)
+            stmt = stmt.where(Playlist.user_id == self.current_user_id, Playlist.is_deleted == False)
         stmt = stmt.order_by(Playlist.created_at.desc()).options(
-            joinedload(Playlist.user).load_only(User.username)
-        ).options(
-                selectinload(Playlist.tracks).options(
-                    load_only(Track.title),
-                    selectinload(Track.artists).load_only(Artist.name)
-                )
-                .order_by(PlaylistTrack.position.asc())
-            ).limit(100)    # limited to 100, avoid too many data returned, paginated later...
+            joinedload(Playlist.user).load_only(User.username),
+            selectinload(Playlist.tracks).options(
+                load_only(Track.title),
+                selectinload(Track.artists).load_only(Artist.name)
+            )
+        ).limit(200)    # limited to 200, avoid too many data returned, paginated later...
         result = await self.db.execute(stmt)
-        for playlist in result.scalars().all():
+        playlist_list = result.scalars().all()
+        
+        if not playlist_list:
+            return playlists
+        
+        # batch query track position info of all playlists
+        playlist_ids = [p.id for p in playlist_list]
+        pos_result = await self.db.execute(
+            select(PlaylistTrack.playlist_id, PlaylistTrack.track_id, PlaylistTrack.position)
+            .where(PlaylistTrack.playlist_id.in_(playlist_ids))
+        )
+        
+        # build position map: {playlist_id: {track_id: position}}
+        pos_map = {}
+        for row in pos_result:
+            if row.playlist_id not in pos_map:
+                pos_map[row.playlist_id] = {}
+            pos_map[row.playlist_id][row.track_id] = row.position
+        
+        for playlist in playlist_list:
+            # sort tracks by position
+            track_pos_map = pos_map.get(playlist.id, {})
+            sorted_tracks = sorted(playlist.tracks, key=lambda t: track_pos_map.get(t.id, 0))
+            
             playlists.append({
                 'id': playlist.id,
                 'title': playlist.title,
-                'username': playlist.username,
-                'tracks': [{'title': track.title, 'artists': [a.name for a in track.artists]} for track in playlist.tracks]
+                'username': playlist.user.username,
+                'tracks': [{'title': track.title, 'artists': [a.name for a in track.artists]} for track in sorted_tracks]
             })
         return playlists
+
+    async def get_user_playlist_data(self, user_id: int) -> dict:
+        '''get user playlist data, only for backend export, tracks show as path'''
+        user = await self.db.get(User, user_id)
+        result = await self.db.execute(
+            select(Playlist)
+            .where(Playlist.user_id == user_id, Playlist.is_deleted == False)
+            .options(
+                load_only(Playlist.id, Playlist.title, Playlist.comment),
+                selectinload(Playlist.user).load_only(User.id, User.username),
+                selectinload(Playlist.tracks).load_only(Track.title, Track.path)
+            )
+        )
+        playlists = result.scalars().all()
+        return {
+            'user': {'id': user.id, 'username': user.username},
+            'playlists': [{
+                'id': playlist.id,
+                'title': playlist.title,
+                'comment': playlist.comment,
+                'tracks': [track.path for track in playlist.tracks]
+            } for playlist in playlists]
+        }
+
+    async def get_playlist_data(self, playlist_id: int) -> dict:
+        '''get playlist data, only for backend export, tracks show as path'''
+        result = await self.db.execute(
+            select(Playlist)
+            .where(Playlist.id == playlist_id)
+            .options(
+                load_only(Playlist.id, Playlist.title, Playlist.comment),
+                joinedload(Playlist.user).load_only(User.id, User.username),
+                joinedload(Playlist.tracks).load_only(Track.title, Track.path)
+            )
+        )
+        playlist = result.scalars().first()
+        if playlist:
+            return {
+                'id': playlist.id,
+                'title': playlist.title,
+                'comment': playlist.comment,
+                'user': {'id': playlist.user.id, 'username': playlist.user.username},
+                'tracks': [{'title': track.title, 'path': track.path} for track in playlist.tracks]
+            }
     
     async def create_playlist_from_json(self, filename: str) -> str:
         '''create playlist from json file'''
@@ -171,30 +233,8 @@ class PlaylistService:
             playlist.get('comment'),
             tracks=playlist.get('tracks')
         )
-
-    async def backup_user_playlist_to_json(self, playlist_id: int):
-        playlist = await self.db.get(Playlist, playlist_id)
-        if playlist:
-            playlist_tracks = await self.db.execute(
-                select(Track.path)
-                .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
-                .where(PlaylistTrack.playlist_id == playlist_id)
-            )
-            tracks = [track.path for track in playlist_tracks.scalars().all()]
-
-            create_time = playlist.created_at.strftime('%Y%m%d%H%M%S')
-            json_file = self.settings.PLAYLISTS_TMP_DIR / f"{playlist.title}_{create_time}.json"
-            json_file.write_text(json.dumps(
-                {
-                    'title': playlist.title,
-                    'username': self.current_user.username,
-                    'source': 'backup',
-                    'time': create_time,
-                    'tracks': tracks
-                }, 
-                ensure_ascii=False), encoding='utf-8'
-            )
     # endregion backend use
+
     # region frontend use
     async def get_top_playlists(self, limit: int = 6) -> list[dict]:
         '''get the most played playlists'''
@@ -497,7 +537,7 @@ class PlayDataService:
     def __init__(self, db: DbDep):
         self.db = db
 
-    async def validate_upload_file(self, file: UploadFile, category: str) -> list:
+    async def validate_upload_file(self, file: UploadFile, category: Literal['playlists', 'hits', 'favorites']) -> list:
         # 1. validate upload file
         if file.content_type not in ['application/json', 'text/json']:
             raise BusinessException(
@@ -547,56 +587,36 @@ class PlayDataService:
             )
         
         return json_data[category]
-    async def get_user_playlist_data(self, user_id: int) -> dict:
-        user_service = UserService()
-        user = await user_service.get_user(user_id)
-        stmt = select(Playlist).options(
-            selectinload(Playlist.tracks)
-            .load_only(Track.path)
-            .order_by(PlaylistTrack.position.asc())
-        ).where(Playlist.user_id == user_id).order_by(Playlist.created_at.desc())
-        result = await self.db.execute(stmt)
-        return {
-            'user': user['username'], 
-            'playlists': [{
-                'id': playlist.id,
-                'title': playlist.title,
-                'created_at': playlist.created_at.isoformat(),
-                'tracks': [{'path': track.path} for track in playlist.tracks]
-            } for playlist in result.scalars().all()]
-        }
-    
-    async def get_user_hits_data(self, user_id: int) -> dict:
-        user_service = UserService()
-        user = await user_service.get_user(user_id)
+        
+    async def get_user_track_hits_data(self, user_id: int) -> dict:
+        user = await self.db.get(User, user_id)
         stmt = select(TrackHit).options(
             joinedload(TrackHit.track).load_only(Track.path)
         ).where(TrackHit.user_id == user_id).order_by(TrackHit.played_at.asc())
         result = await self.db.execute(stmt)
         return {
-            'user': user['username'], 
+            'user': {'id': user.id, 'username': user.username}, 
             'hits': [{
                 'track': hit.track.path,
                 'played_at': hit.played_at.isoformat()
             } for hit in result.scalars().all()]
         }
     
-    async def get_user_favorites_data(self, user_id: int) -> dict:
-        user_service = UserService()
-        user = await user_service.get_user(user_id)
+    async def get_user_track_favorites_data(self, user_id: int) -> dict:
+        user = await self.db.get(User, user_id)
         stmt = select(TrackFav).options(
-            joinedload(TrackFav.track).load_only(Track.path)
+            joinedload(TrackFav.track).load_only(Track.title, Track.path)
         ).where(TrackFav.user_id == user_id).order_by(TrackFav.favorited_at.asc())
         result = await self.db.execute(stmt)
         return {
-            'user': user['username'],
+            'user': {'id': user.id, 'username': user.username},
             'favorites': [{
                 'track': fav.track.path,
                 'favorited_at': fav.favorited_at.isoformat()
             } for fav in result.scalars().all()]
         }
 
-    async def import_playlist_from_json(self, user_id: int, json_data: list, is_update: bool = False) -> dict:
+    async def import_playlist_from_json(self, user_id: int, json_data: list, mode: Literal['merge', 'replace', 'skip']) -> dict:
         '''restore user playlist from json file'''
         # 1. verify json structure
         try:
@@ -613,72 +633,125 @@ class PlayDataService:
         stats = {
             'total': len(import_playlists_data),
             'success': 0,
+            'skipped': 0,
             'failed': 0,
             'errors': []
         }
 
         # 3. lookup depended data(in batches to reduce db interaction)
-        track_paths = {track.path for p in import_playlists_data for track in p.tracks}
+        # 3.1 lookup tracks by path(tracks in json are path strings)
+        track_paths = {path for p in import_playlists_data for path in (p.tracks or [])}
         track_result = await self.db.execute(
             select(Track)
             .where(Track.path.in_(track_paths))
         )
         tracks = {track.path: track for track in track_result.scalars().all()}
 
+        # 3.2 lookup existing playlists of the user by title
+        # playlist id is the primary key, title may be duplicated,
+        # so group by title and only keep the first one(lowest id) for each title
+        playlist_titles = {p.title for p in import_playlists_data}
+        playlist_result = await self.db.execute(
+            select(Playlist)
+            .where(
+                Playlist.user_id == user_id,
+                Playlist.is_deleted == False,
+                Playlist.title.in_(playlist_titles)
+            )
+            .order_by(Playlist.id.asc())
+        )
+        existing_playlists: dict[str, Playlist] = {}
+        for existing in playlist_result.scalars().all():
+            if existing.title not in existing_playlists:
+                existing_playlists[existing.title] = existing
+
+        # 3.3 for merge mode, batch preload existing track ids and max position of matched playlists
+        # to avoid querying db in the loop(N+1)
+        existing_track_ids_map: dict[int, set[int]] = {}
+        max_position_map: dict[int, int] = {}
+        if mode == 'merge' and existing_playlists:
+            playlist_ids = [p.id for p in existing_playlists.values()]
+            pt_result = await self.db.execute(
+                select(PlaylistTrack.playlist_id, PlaylistTrack.track_id, PlaylistTrack.position)
+                .where(PlaylistTrack.playlist_id.in_(playlist_ids))
+            )
+            for playlist_id, track_id, position in pt_result.all():
+                existing_track_ids_map.setdefault(playlist_id, set()).add(track_id)
+                max_position_map[playlist_id] = max(max_position_map.get(playlist_id, -1), position)
+
         # 4. handle each playlist
         for idx, playlist_data in enumerate(import_playlists_data):
             try:
-                # 4.1 handle playlist, update or create
-                playlist: Playlist | None = None
-                if is_update and playlist_data.id: 
-                    playlist = await self.db.get(Playlist, playlist_data.id)
-                
-                if playlist:
-                    # update playlist
+                playlist = existing_playlists.get(playlist_data.title)
+
+                # 4.1 playlist with the same title exists, handle according to mode
+                if playlist is not None:
+                    if mode == 'skip':
+                        stats['errors'].append(f'Index {idx}: Playlist {playlist_data.title} already exists, skipped')
+                        stats['skipped'] += 1
+                        continue
+
+                    # update playlist info
                     playlist.title = playlist_data.title
-                    playlist.created_at = playlist_data.created_at
+                    playlist.comment = playlist_data.comment
                     self.db.add(playlist)
+
+                    if mode == 'replace':
+                        # clear the tracks of the current playlist, then bind imported tracks
+                        await self.db.execute(
+                            delete(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist.id)
+                        )
+                        stats['errors'].append(f'Index {idx}: Playlist {playlist_data.title} already exists, replaced')
                 else:
-                    # create playlist
+                    # 4.2 no playlist with the same title, create a new one
                     playlist = Playlist(
                         title=playlist_data.title,
-                        created_at=playlist_data.created_at,
+                        comment=playlist_data.comment,
                         user_id=user_id
                     )
                     self.db.add(playlist)
                     await self.db.flush()
 
-                # 4.2 handle binded tracks(many to many)
-                # clear the tracks of the current playlist(to avoid duplicates)
-                await self.db.execute(
-                    delete(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist.id)
-                )
-                # bind tracks existed in batches
+                # 4.3 handle binded tracks(many to many)
+                # for merge mode, deduplicate with preloaded existing track ids
+                existing_track_ids = existing_track_ids_map.get(playlist.id, set()) if mode == 'merge' else set()
+
                 track_ids = []
-                for track_data in playlist_data.tracks:
-                    track = tracks.get(track_data.path)
-                    if track: 
-                        track_ids.append(track.id)
-                    else: 
-                        stats['errors'].append(f'Index {idx}: Track {track_data.path} not found, skipped')
+                for path in playlist_data.tracks or []:
+                    track = tracks.get(path)
+                    if track is None:
+                        stats['errors'].append(f'Index {idx}: Track {path} not found, skipped')
+                        continue
+                    if mode == 'merge' and track.id in existing_track_ids:
+                        stats['errors'].append(f'Index {idx}: duplicated and skip: {path}')
+                        continue
+                    track_ids.append(track.id)
+                    existing_track_ids.add(track.id)
 
                 # bind tracks in batches
                 if track_ids:
+                    if mode == 'merge':
+                        # append after existing tracks, position continues from preloaded max position
+                        position = max_position_map.get(playlist.id, -1) + 1
+                    else:
+                        # create or replace mode, position starts from 0
+                        position = 0
                     association_data = [
                         {'playlist_id': playlist.id, 'track_id': track_id, 'position': pos}
-                        for pos, track_id in enumerate(track_ids) # position starts from 0
+                        for pos, track_id in enumerate(track_ids, start=position)
                     ]
                     await self.db.execute(
                         insert(PlaylistTrack).values(association_data)
                     )
+                # commit each playlist independently, so a single failure does not affect others
+                await self.db.commit()
                 stats['success'] += 1
             except Exception as e:
-                # fail to handle single playlist, but not affecting the whole import
+                # rollback to recover session state, so the failure of a single playlist
+                # does not affect the import of the remaining playlists
+                await self.db.rollback()
                 stats['failed'] += 1
                 stats['errors'].append(f'Index {idx}: Failed to import - {str(e)}')
-        
-        # 5. commit
-        await self.db.commit()
 
         return stats
     
@@ -710,7 +783,7 @@ class PlayDataService:
 
         # clear the hits of the current user
         await self.db.execute(
-            delete(TrackHit).where(TrackHit.user_id == self.current_user_id)
+            delete(TrackHit).where(TrackHit.user_id == user_id)
         )
 
         insert_data = []
@@ -732,7 +805,7 @@ class PlayDataService:
                     insert(TrackHit).values(insert_data)
                 )
             except Exception as e:
-                stats['errors'] = [f'Failed to import - {str(e)}']
+                stats['errors'] = [f'Failed to import: error when insert to db.']
                 stats['failed'] = 1
         return stats
 
@@ -764,7 +837,7 @@ class PlayDataService:
 
         # clear the favs of the current user
         await self.db.execute(
-            delete(TrackFav).where(TrackFav.user_id == self.current_user_id)
+            delete(TrackFav).where(TrackFav.user_id == user_id)
         )
 
         insert_data = []
@@ -785,7 +858,7 @@ class PlayDataService:
                 await self.db.execute(
                     insert(TrackFav).values(insert_data)
                 )
-            except Exception as e:
-                stats['errors'] = [f'Failed to import - {str(e)}']
+            except Exception:
+                stats['errors'] = [f'Failed to import: error when insert to db.']
                 stats['failed'] = 1
         return stats

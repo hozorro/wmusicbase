@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 @dataclass
 class SystemState:
-    is_watcher_running: bool = False
+    is_watcher_running: bool = False    # only for dev when watcher is running in fastapi background task mode
     is_scanning: bool = False
     scan_progress: dict[str, int | str] | None = None
 

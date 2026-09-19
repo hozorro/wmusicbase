@@ -153,3 +153,13 @@ class MatchAcoustResponse(BaseModel):
     
 class PlaylistJsonListResponse(BaseModel):
     playlists: list[PlaylistJsonInfo]
+
+class PlaylistBackupInfo(BaseModel):
+    id: int
+    title: str
+    username: str
+    tracks: list[dict[str, str | list[str]]]
+    show: bool | None = False
+
+class PlaylistBackupResponse(RootModel):
+    root: list[PlaylistBackupInfo]

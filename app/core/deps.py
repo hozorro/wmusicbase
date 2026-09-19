@@ -105,8 +105,9 @@ async def get_current_user(
                 msg='invalid credentials when get current user',
                 status_code=status.HTTP_401_UNAUTHORIZED
             )
-        _USER_CACHE[user_id] = user
-        return CurrentUser(id=user.id, is_admin=user.is_admin, username=user.username)
+        current_user = CurrentUser(id=user.id, is_admin=user.is_admin, username=user.username)
+        _USER_CACHE[user_id] = current_user
+        return current_user
     except Exception as e:
         raise BusinessException(
             code=20008,

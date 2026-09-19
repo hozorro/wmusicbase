@@ -20,9 +20,8 @@ from app.core.deps import DbDep, AdminDep
 from app.core.config import settings, create_required_directories
 from app.core.state import system_state
 from app.models import Track, Album, Artist, Folder, Genre, Playlist, track_artists, TrackHit
-from app.services.sync import Syncer
 from app.schemas.common import ResponseModel, SuccessMsgModel, MediaPath
-from app.schemas.sysinfo import DashboardInfo, ScanInfo, ArtistArtRequest, SetArtistArtsRequest, SetArtistArtsResponse, ArtistArt
+from app.schemas.sysinfo import DashboardInfo, ScanInfo
 
 router = APIRouter()
 
@@ -64,29 +63,20 @@ async def _get_basic_stats(db: AsyncSession):
 #============= playback statistics ============
 async def _get_playback_stats(db: AsyncSession):
     recent = await db.execute(
-        select(Track.id, Track.title)
+        select(Track.title, TrackHit.played_at)
         .join(TrackHit)
-        .order_by(TrackHit.played_at.desc())
-        .limit(4)
+        .order_by(desc(TrackHit.played_at))
+        .limit(5)
     )
 
-    track_play_subq = (
-        select(
-            TrackHit.track_id,
-            func.count(TrackHit.id).label('hit_count')
-        ).group_by(TrackHit.track_id)
-        .subquery('track_play_subq')
-    )
     top_played_artists = await db.execute(
-        select(
-            Artist.id, 
-            Artist.name, 
-            func.coalesce(func.sum(track_play_subq.c.hit_count), 0).label('play_count'))
-        .outerjoin(track_artists, Artist.id == track_artists.c.track_id)
-        .outerjoin(Track, Track.id == track_artists.c.track_id)
-        .outerjoin(track_play_subq, Track.id == track_play_subq.c.track_id)
+        select(Artist.id, Artist.name, func.count(TrackHit.id).label('play_count'))
+        .join(track_artists, Artist.id == track_artists.c.artist_id)
+        .join(Track, Track.id == track_artists.c.track_id)
+        .join(TrackHit, Track.id == TrackHit.track_id)
+        .having(func.count(TrackHit.id) > 0)
         .group_by(Artist.id)
-        .order_by(desc('play_count'))
+        .order_by(desc(func.count(TrackHit.id)))
         .limit(5)
     )
 
@@ -94,7 +84,7 @@ async def _get_playback_stats(db: AsyncSession):
 
     stats = {
         'total_played': total_played or 0,
-        'recent_tracks': [{'id': t.id, 'title': t.title} for t in recent],
+        'recent_tracks': [{'title': t.title, 'played_at': t.played_at} for t in recent],
         'top_artists': [{'id': id, 'name': name, 'play_count': play_count} for id, name, play_count in top_played_artists],
     }
     return stats
@@ -156,12 +146,6 @@ async def get_dashboard_stats(
             'watcher_info': watcher_info,
         })
     )
-
-@router.post('/initializemeta', response_model=ResponseModel[None])
-async def initialize_meta(db: DbDep):
-    syncer = Syncer(db, settings)
-    await syncer.initialize_sync_meta()
-    return ResponseModel(code=200, msg='ok')
 
 @router.get('/initdirs', response_model=ResponseModel[list[MediaPath]])
 async def get_init_dir():
