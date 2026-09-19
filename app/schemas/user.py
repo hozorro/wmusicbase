@@ -25,6 +25,14 @@ class UserResponse(UserBase):
     id: int
     created_at: datetime
 
+class UserDetail(UserBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_type: str
+    device_id: str
+    last_login_at: datetime | None = None
+
 class TokenData(BaseModel):
     access_token: str
     refresh_token: str | None = None

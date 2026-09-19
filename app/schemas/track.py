@@ -11,9 +11,9 @@
 
 from datetime import datetime
 from typing import Any
-from pydantic import model_validator, BaseModel, Field
+from pydantic import model_validator
 from app.models.track import Track
-from .common import TrackBase, TrackBrief, TrackMedium, AlbumBase
+from .common import TrackBase, TrackMedium, AlbumBase
 
 class TrackInfoResponse(TrackMedium):
     album: AlbumBase

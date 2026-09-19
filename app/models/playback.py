@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from . import User, Track, Artist
 
-from sqlalchemy import String, Integer, ForeignKey, UniqueConstraint, Index, func
+from sqlalchemy import String, ForeignKey, UniqueConstraint, Index, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from datetime import datetime
@@ -94,7 +94,7 @@ class PlaylistTrack(Base):
 
     playlist_id: Mapped[int] = mapped_column(ForeignKey('playlists.id', ondelete='CASCADE'), primary_key=True)
     track_id: Mapped[int] = mapped_column(ForeignKey('tracks.id', ondelete='CASCADE'), primary_key=True)
-    position: Mapped[int] = mapped_column() # 在播放列表中的顺序
+    position: Mapped[int] = mapped_column() # order in playlist
 
     __table_args__ = (
         Index('ix_playlist_tracks_playlist_id', 'playlist_id'),
@@ -117,23 +117,3 @@ class PlaylistHit(Base):
         Index('ix_playlist_hits_playlist_id', 'playlist_id'),
         Index('ix_playlist_hits_user_played_at', 'user_id', 'played_at'),
     )
-
-class SyncMeta(Base):
-    __tablename__ = 'sync_meta'
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    model_name: Mapped[str] = mapped_column(String(20), index=True)
-    last_update: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=func.now(), nullable=False)
-    total_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)    # total count with is_deleted=False
-    user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'))
-
-    user: Mapped['User'] = relationship('User', back_populates='sync_meta')
-
-    __table_args__ = (
-        UniqueConstraint('user_id', 'model_name', name='uq_meta_user_model'),
-        Index('ix_meta_user_id', 'user_id'),
-        Index('ix_meta_model_name', 'model_name')
-    )
-
-    def __repr__(self):
-        return f'<SyncMeta {self.model_name}: v={self.last_update}, c={self.total_count}>'

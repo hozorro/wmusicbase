@@ -119,14 +119,6 @@ async def delete_playlist(data: PlaylistDeleteRequest, service: PlaylistService 
     await service.delete_playlist(data.id)
     return ResponseModel(data=SuccessMsgModel())
 
-@router.post('/addplaylistsimple', response_model=ResponseModel[SuccessMsgModel])
-async def add_playlist_simple(
-    data: PlaylistCreate,
-    service: PlaylistService = Depends(PlaylistService)
-):
-    result = await service.create_playlist_and_bind_tracks(data)
-    return ResponseModel(data=PlaylistResponse.model_validate(result.playlist))
-
 @router.put('/addtracktoplaylist', response_model=ResponseModel[SuccessMsgModel])
 async def add_track_to_playlist(data: TrackToPlaylistRequest, service: PlaylistService = Depends(PlaylistService)):
     result = await service.add_track_to_playlist(data.playlist_id, data.track_id)

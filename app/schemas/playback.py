@@ -8,12 +8,11 @@
 @Desc      :   playlist schemas
 '''
 
-
 from fastapi import UploadFile, Form, File
 from datetime import datetime
 from pydantic import BaseModel, RootModel, Field, field_validator
 from app.schemas.common import PlaylistBase, TrackBrief
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar, Literal
 
 class PlaylistCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=100, description='Playlist title')
@@ -73,33 +72,22 @@ class ArtistFavRequest(BaseModel):
     artist_id: int = Field(..., description='Artist id')
     is_favorited: bool = Field(..., description='True to favorite, False to unfavorite')
 
-class TrackImport(BaseModel):
-    path: str = Field(..., description='Track path', min_length=1, max_length=255)
-
-    @field_validator('path')
-    @classmethod
-    def validate_path(cls, v):
-        if not v.startswith('Chinese') and not v.startswith('Foreign'):
-            raise ValueError('Path is relative to music library root')
-        return v
-    
 class PlaylistImport(BaseModel):
     id: int | None = Field(None, description='Playlist id, only used for update')
     title: str = Field(..., description='Playlist title', min_length=1, max_length=100)
-    created_at: str | None = Field(None, description='Playlist created at(ISO 8601 string)')
-    tracks: list[TrackImport] | None = Field(..., description='Tracks', min_length=1)
+    comment: str | None = Field(None, description='Playlist comment', max_length=255)
+    tracks: list[str] | None = Field(None, description='Tracks', min_length=1, max_length=200)
 
-    @field_validator('created_at')
+    @field_validator('tracks')
     @classmethod
-    def validate_created_at(cls, v: str) -> datetime:
+    def validate_tracks(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return v
-        from datetime import datetime
-        try:
-            return datetime.fromisoformat(v)
-        except ValueError:
-            raise ValueError('Invalid ISO 8601 string')
-        
+        for track in v:
+            if not track.startswith('Chinese') and not track.startswith('Foreign'):
+                raise ValueError('Track path must be relative to music library root')
+        return v
+
 class PlaylistImportRoot(RootModel):
     root: list[PlaylistImport] = Field(..., description='Playlists array')
 
@@ -122,6 +110,7 @@ class PlaylistTrackBrief(TrackBrief):
 class PlaylistWithTracksResponse(PlaylistResponse):
     tracks: list[PlaylistTrackBrief] | None = None
 
+# ============ Hit & Fav & Playlist import schemas ============
 T = TypeVar('T', bound=datetime)
 class OperationImport(BaseModel, Generic[T]):
     track: str = Field(..., description='track path')
@@ -187,12 +176,13 @@ class ImportJsonUpload(BaseModel):
     file: UploadFile
     
 class PlaylistJsonUpload(ImportJsonUpload):
-    is_update: bool = Field(False, description='Update playlist if exists')
+    mode: Literal['merge', 'replace', 'skip'] = Field('merge', description='Update playlist mode if exists')
 
 class JsonImportResponse(BaseModel):
     total: int = Field(0, description='Total playlists')
     success: int = Field(0, description='Success playlists')
+    skipped: int = Field(0, description='Skipped playlists')
     failed: int = Field(0, description='Failed playlists')
-    error: list[str] = Field([], description='Error messages')
+    errors: list[str] = Field([], description='Error messages')
 
 

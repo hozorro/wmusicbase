@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload, joinedload, load_only
 from app.core.deps import SettingsDep, DbDep
-from app.models import Folder, Track, Album, Artist, SyncMeta
+from app.models import Folder, Track, Album, Artist
 from app.schemas.sysinfo import ScanFolder
 
 class FolderService:
@@ -95,8 +95,7 @@ class FolderService:
         result = await self.db.execute(select(Folder).where(Folder.parent_id == None))
         folder = result.scalar_one_or_none()
         if folder: 
-            result_update = await self.db.execute(select(func.max(SyncMeta.last_update)).where(SyncMeta.user_id == None))
             folder_path = self.settings.MUSIC_LIBRARY_PATH / Path(folder.path)
-            return ScanFolder(path=str(folder_path), created_at=folder.created_at, last_update=result_update.scalar_one_or_none())
+            return ScanFolder(path=str(folder_path), created_at=folder.created_at, last_update=None)
         else:
             return ScanFolder(path=str(self.settings.MUSIC_LIBRARY_PATH), created_at=datetime.now(timezone.utc), last_update=None)

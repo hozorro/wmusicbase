@@ -37,9 +37,13 @@ class BasicStats(BaseModel):
 class ArtistPlaybackStats(ArtistBase):
     play_count: int
 
+class TrackPlayed(BaseModel):
+    title: str
+    played_at: datetime
+
 class PlaybackStats(BaseModel):
     total_played: int
-    recent_tracks: list[TrackBase]
+    recent_tracks: list[TrackPlayed]
     top_artists: list[ArtistPlaybackStats]
 
 class WatcherInfo(BaseModel):
