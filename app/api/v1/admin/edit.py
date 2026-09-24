@@ -197,11 +197,11 @@ async def set_artist_art(
             status_code=status.HTTP_400_BAD_REQUEST
         )
     try:
-        url = await service.set_artist_art_from_candidate(data.artist_id, data.art_type, data.filename)
+        await service.set_artist_art_from_candidate(data.artist_id, data.art_type, data.filename)
     except ValueError as e:
         raise BusinessException(
             code=60110, 
             msg='failed to set artist art from candidate', 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-    return ResponseModel(data=url)
+    return ResponseModel(data='ok')
