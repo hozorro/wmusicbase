@@ -439,7 +439,7 @@ class ArtworkService:
         else:
             artist.portrait_art_hash = cover_art_hash
         await self.db.commit()
-        return f'/api/v1/artwork/artist/{artist_id}?img_cate={art_type}&t={int(time.time())}'
+        return 'ok'
 
     async def get_artist_candidate_file(self, artist_id: int, filename: str) -> Path | None:
         '''

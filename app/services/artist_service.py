@@ -37,6 +37,7 @@ class ArtistService:
         result = await self.db.execute(
             select(Artist)
             .filter(Artist.pinyin_initial == start_char)
+            .order_by(Artist.name.asc())
             .options(
                 load_only(Artist.id, Artist.name, Artist.pinyin_initial, Artist.face_art_hash, Artist.portrait_art_hash)
             )
