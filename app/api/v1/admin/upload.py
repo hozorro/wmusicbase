@@ -19,7 +19,7 @@ from app.utils.aidmatch import generate_fingerprint, match_fingerprint
 from app.schemas.common import ResponseModel, CountResponse
 from app.schemas.filething import (
     FileBase, SessionBase, SessionListResponse, FileInfoListResponse, UpdateVerionList, UpdateMetaTagsList,
-    CreateArchive, ArchiveResponse, CreateFingerprint, Fingerprint, MatchAcoustResponse
+    CreateArchive, ArchiveResponse, CreateFingerprint, Fingerprint, MatchAcoustResponse, DeleteStagingFiles
 )
 from typing import Annotated
 
@@ -220,6 +220,24 @@ async def update_metatags(session_id: str, input: UpdateMetaTagsList, service: F
 #     if success_count != batch_count:
 #         raise BusinessException(code=1002, msg='partial success', detail='\n'.join(fail_details))
 #     return ResponseModel(data=CountResponse(count=success_count))
+
+@router.post('/staging/sessions/{session_id}/deletefiles', response_model=ResponseModel[CountResponse])
+async def delete_staging_files(session_id: str, input: DeleteStagingFiles, service: FileService = Depends(FileService)):
+    try:
+        count = service.delete_staging_files(session_id, input.items)
+        return ResponseModel(data=CountResponse(count=count))
+    except FileNotFoundError:
+        raise BusinessException(
+            code=70302,
+            msg='session not found',
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    except Exception:
+        raise BusinessException(
+            code=70317,
+            msg='error when delete staging files',
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 @router.post('/staging/sessions/{session_id}/archive', response_model=ResponseModel[ArchiveResponse])
 async def archive_session_route(

@@ -130,12 +130,37 @@ class FileService:
         audio_meta.update_metadata(new_meta, del_id3v1, del_apev2)
         clear_cached_cover(release_id)
 
+    def delete_staging_files(self, session_id: str, items: list[str]) -> int:
+        '''delete files from staging session, return deleted count'''
+        session_dir = self.settings.STAGING_DIR / session_id
+        songs_dir = session_dir / 'songs'
+        if not songs_dir.exists():
+            raise FileNotFoundError(f'Session {session_id} not found')
+
+        deleted_count = 0
+        for item in items:
+            file_path = songs_dir / item
+            if file_path.exists() and file_path.is_file():
+                try:
+                    file_path.unlink()
+                    deleted_count += 1
+                except Exception as e:
+                    logger.error(f'Failed to delete {file_path}: {e}')
+
+        # delete session directory if empty
+        if len(list(songs_dir.iterdir())) == 0:
+            shutil.rmtree(str(songs_dir))
+        if session_dir.exists() and len(list(session_dir.iterdir())) == 0:
+            shutil.rmtree(str(session_dir))
+
+        return deleted_count
+
 class ArchiveService:
     '''music archive service'''
     def __init__(self, db: DbDep, settings: SettingsDep, request: Request):
         self.db = db
         self.settings = settings
-        self.current_user = request.state.user_id
+        self.current_user_id = request.state.user_id
 
     def _get_initial_group(self, initial: str) -> str:
         '''compute initial group name'''
@@ -237,7 +262,7 @@ class ArchiveService:
             playlist_file.write_text(json.dumps(
                 {
                     'title': playlist,
-                    'username': self.current_user.username,
+                    'user_id': self.current_user_id,
                     'source': 'staging',
                     'time': timestamp,
                     'tracks': [str(filepath.relative_to(Path(self.settings.MUSIC_LIBRARY_PATH))) for _, filepath in results]

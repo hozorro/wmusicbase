@@ -134,6 +134,9 @@ class CreateArchive(BaseModel):
     items: list[str]
     playlist: str | None
 
+class DeleteStagingFiles(BaseModel):
+    items: list[str]
+
 class CreateFingerprint(BaseModel):
     filename: str
     session_id: str

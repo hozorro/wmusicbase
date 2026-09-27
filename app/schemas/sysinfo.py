@@ -18,6 +18,9 @@ from typing import Literal
 class ArtistStatInfo(ArtistBase):
     track_count: int
 
+class ArtistCreateInfo(ArtistBase):
+    created_at: datetime
+
 class TrackStatInfo(TrackBase):
     created_at: datetime
 
@@ -33,6 +36,7 @@ class BasicStats(BaseModel):
     general: EntityStats
     artist_tracks_stats: list[ArtistStatInfo]
     latest_added_tracks_stats: list[TrackStatInfo]
+    latest_created_artists_stats: list[ArtistCreateInfo]
 
 class ArtistPlaybackStats(ArtistBase):
     play_count: int

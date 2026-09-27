@@ -52,12 +52,18 @@ async def _get_basic_stats(db: AsyncSession):
     latest_added_tracks = await db.execute(
         select(Track.id, Track.title, Track.created_at)
         .order_by(Track.created_at.desc())
-        .limit(5)
+        .limit(6)
+    )
+    latest_created_artists = await db.execute(
+        select(Artist.id, Artist.name, Artist.created_at)
+        .order_by(Artist.created_at.desc())
+        .limit(6)
     )
     stats = {
         'general': general_stats,
         'artist_tracks_stats': [{'id': a.id, 'name': a.name, 'track_count': a.track_count} for a in artists_tracks_count],
         'latest_added_tracks_stats': [{'id': t.id, 'title': t.title, 'created_at': t.created_at} for t in latest_added_tracks],
+        'latest_created_artists_stats': [{'id': a.id, 'name': a.name, 'created_at': a.created_at} for a in latest_created_artists],
     }
     return stats
 #============= playback statistics ============
@@ -66,7 +72,7 @@ async def _get_playback_stats(db: AsyncSession):
         select(Track.title, TrackHit.played_at)
         .join(TrackHit)
         .order_by(desc(TrackHit.played_at))
-        .limit(5)
+        .limit(6)
     )
 
     top_played_artists = await db.execute(
@@ -77,7 +83,7 @@ async def _get_playback_stats(db: AsyncSession):
         .having(func.count(TrackHit.id) > 0)
         .group_by(Artist.id)
         .order_by(desc(func.count(TrackHit.id)))
-        .limit(5)
+        .limit(6)
     )
 
     total_played = await db.scalar(select(func.count(TrackHit.id)))
