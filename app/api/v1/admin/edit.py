@@ -11,7 +11,7 @@
 
 from fastapi import APIRouter, Depends, UploadFile, Form, File, status
 from pydantic import BaseModel
-from app.schemas.common import ResponseModel, SuccessMsgModel, CountResponse, ArtistBase, ArtistPrimary
+from app.schemas.common import ArtistWithCreated, ResponseModel, SuccessMsgModel, CountResponse, ArtistBase
 from app.schemas.filething import UpdateMetaTagList
 from app.schemas.artist import ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate
 from app.schemas.album import AlbumResponse, AlbumArtCreate, album_art_upload_from_form
@@ -42,7 +42,7 @@ async def get_artists_by_page(
 ):
     total, artists = await service.get_artists_by_page(page, page_size)
     return ResponseModel(data={
-        'list': [ArtistPrimary.model_validate(a) for a in artists],
+        'list': [ArtistWithCreated.model_validate(a) for a in artists],
         'total': total
     })
 

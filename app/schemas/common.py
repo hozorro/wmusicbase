@@ -65,6 +65,9 @@ class ArtistBase(ArtistPrimary):
 class ArtistBrief(ArtistBase):
     pinyin_initial: str
 
+class ArtistWithCreated(ArtistBase):
+    created_at: datetime
+
 #==== Folder ====
 class FolderBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)

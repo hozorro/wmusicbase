@@ -56,7 +56,7 @@ class ArtistService:
             .offset(offset)
             .limit(page_size)
             .options(
-                load_only(Artist.id, Artist.name)
+                load_only(Artist.id, Artist.name, Artist.created_at)
             )
         )
         artists = result.scalars().all()
