@@ -54,10 +54,16 @@ async def _get_basic_stats(db: AsyncSession):
         .order_by(Track.created_at.desc())
         .limit(5)
     )
+    latest_created_artists = await db.execute(
+        select(Artist.id, Artist.name, Artist.created_at)
+        .order_by(Artist.created_at.desc())
+        .limit(10)
+    )
     stats = {
         'general': general_stats,
         'artist_tracks_stats': [{'id': a.id, 'name': a.name, 'track_count': a.track_count} for a in artists_tracks_count],
         'latest_added_tracks_stats': [{'id': t.id, 'title': t.title, 'created_at': t.created_at} for t in latest_added_tracks],
+        'latest_created_artists_stats': [{'id': a.id, 'name': a.name, 'created_at': a.created_at} for a in latest_created_artists],
     }
     return stats
 #============= playback statistics ============

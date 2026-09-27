@@ -45,6 +45,23 @@ class ArtistService:
         artists = result.scalars().all()
         return artists
     
+    async def get_artists_by_page(self, page: int = 1, page_size: int = 20) -> tuple[int, list[Artist]]:
+        '''get paginated artists, only return id and name'''
+        offset = (page - 1) * page_size
+        total_result = await self.db.execute(select(func.count(Artist.id)))
+        total = total_result.scalar_one()
+        result = await self.db.execute(
+            select(Artist)
+            .order_by(Artist.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
+            .options(
+                load_only(Artist.id, Artist.name)
+            )
+        )
+        artists = result.scalars().all()
+        return total, artists
+    
     async def _get_artist_albums_separated(self, artist_id: int) -> tuple[list[Album], list[Album]]:
         track_count_subq = (
             select(
