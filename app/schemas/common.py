@@ -65,7 +65,7 @@ class ArtistBase(ArtistPrimary):
 class ArtistBrief(ArtistBase):
     pinyin_initial: str
 
-class ArtistWithCreated(ArtistBase):
+class ArtistWithCreated(ArtistPrimary):
     created_at: datetime
 
 #==== Folder ====
