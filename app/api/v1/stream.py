@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import Response
 from app.services.file_service import StreamService
 from app.core.exceptions import BusinessException
+from app.core.logger import logger
 from app.core.config import settings
 from app.utils.streaming import signer, parse_range
 
@@ -51,6 +52,7 @@ async def stream_track(track_id: int, token: str, request: Request, service: Str
     
     # debug mode, serve file directly
     if settings.DEBUG:
+        logger.info(f'serving track file by fastapi: {track_id}')
         track_file = await service.get_audio_file(track_id)
         file_size = os.path.getsize(track_file)
         mime_type, _ = mimetypes.guess_type(track_file)
@@ -96,6 +98,7 @@ async def stream_track(track_id: int, token: str, request: Request, service: Str
         )
     inner = settings.MUSIC_STATIC_PREFIX + urllib.parse.quote(track_path)
     filename = os.path.basename(track_path)
+    logger.info(f'serving track file by nginx: {inner}')
     return Response(
         status_code=200,
         headers={
