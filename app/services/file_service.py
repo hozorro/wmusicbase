@@ -285,6 +285,14 @@ class StreamService:
             return None
         abs_path = (self.settings.MUSIC_LIBRARY_PATH / track_path).resolve()
         return str(abs_path)
+
+    async def get_track_path(self, track_id: int) -> str | None:
+        '''get audio file path for streaming'''
+        result = await self.db.execute(select(Track.path).where(Track.id == track_id, Track.is_deleted == False))
+        track_path = result.scalar_one_or_none()
+        if not track_path:
+            return None
+        return track_path
     
     async def check_user(self, user_id: int):
         result = await self.db.execute(select(User).where(User.id == user_id))

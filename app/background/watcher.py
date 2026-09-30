@@ -10,10 +10,11 @@
 
 
 # If use and triggle watcher in the fastapi background, 
-# use the watcher_manager.py module and disable trigger in the frontend.
+# use the watcher_manager.py module and enable trigger in the frontend.
 #
 # If use watcher in separated process, 
-# use supervisor to manage watcher with this module.
+# use supervisor to manage watcher with this module,
+# and disable trigger in the frontend.
 
 import time, asyncio, signal
 from pathlib import Path

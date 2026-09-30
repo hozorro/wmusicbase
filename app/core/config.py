@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     # =========== Music library config =========
     MUSIC_LIBRARY_PATH: Path = Field(default=PROJECT_BASE / 'music_library', description='Music library root directory(can be overridden by environment variables)')
     MUSIC_FILE_EXTENSIONS: list[str] = Field(['.mp3', '.flac'], description='Music file extensions(default: [.mp3, .flac]，can be overridden by environment variables)')
+    MUSIC_STATIC_PREFIX: str = Field('/music', description='Music file statically dealt by nginx with prefix(default: /music，can be overridden by environment variables)')
 
     # ========== App base path config ===========
     PROJECT_ROOT: Path = Field(default=PROJECT_BASE, description='Project root directory(can be overridden by environment variables)')

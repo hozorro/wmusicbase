@@ -10,11 +10,13 @@
 
 
 import os, mimetypes
+import urllib
 from itsdangerous import BadSignature, SignatureExpired
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import Response
 from app.services.file_service import StreamService
 from app.core.exceptions import BusinessException
+from app.core.config import settings
 from app.utils.streaming import signer, parse_range
 
 router = APIRouter()
@@ -47,44 +49,58 @@ async def stream_track(track_id: int, token: str, request: Request, service: Str
             status_code=status.HTTP_403_FORBIDDEN
         )
     
-    track_file = await service.get_audio_file(track_id)
-    if not track_file:
+    # debug mode, serve file directly
+    if settings.DEBUG:
+        track_file = await service.get_audio_file(track_id)
+        file_size = os.path.getsize(track_file)
+        mime_type, _ = mimetypes.guess_type(track_file)
+        mime_type = mime_type or 'audio/mpeg'
+
+        range_header = request.headers.get('Range')
+
+        # range request from safari / chrome
+        if range_header:
+            start, end = parse_range(range_header, file_size)
+            chunk_size = end - start + 1
+
+            with open(track_file, 'rb') as f:
+                f.seek(start)
+                data = f.read(chunk_size)
+
+            headers = {
+                'Content-Range': f'bytes {start}-{end}/{file_size}',
+                'Content-Length': str(chunk_size),
+                'Accept-Ranges': 'bytes',
+                'Content-Type': mime_type
+            }
+
+            return Response(data, status_code=206, headers=headers)
+        
+        # request without range(first load)
+        with open(track_file, 'rb') as f:
+            data = f.read()
+        headers = {
+            'Content-Length': str(file_size),
+            'Accept-Ranges': 'bytes',
+            'Content-Type': mime_type
+        }
+        return Response(data, status_code=200, headers=headers)
+
+    # production mode, use nginx to serve file
+    track_path = await service.get_track_path(track_id)
+    if not track_path:
         raise BusinessException(
             code=30304, 
             msg='track file not found', 
             status_code=status.HTTP_404_NOT_FOUND
         )
-    
-    file_size = os.path.getsize(track_file)
-    mime_type, _ = mimetypes.guess_type(track_file)
-    mime_type = mime_type or 'audio/mpeg'
-
-    range_header = request.headers.get('Range')
-
-    # range request from safari / chrome
-    if range_header:
-        start, end = parse_range(range_header, file_size)
-        chunk_size = end - start + 1
-
-        with open(track_file, 'rb') as f:
-            f.seek(start)
-            data = f.read(chunk_size)
-
-        headers = {
-            'Content-Range': f'bytes {start}-{end}/{file_size}',
-            'Content-Length': str(chunk_size),
+    inner = settings.MUSIC_STATIC_PREFIX + urllib.parse.quote(track_path)
+    filename = os.path.basename(track_path)
+    return Response(
+        status_code=200,
+        headers={
+            'X-Accel-Redirect': inner,
+            'Content-Disposition': f"inline; filename*=utf-8''{urllib.parse.quote(filename)}",
             'Accept-Ranges': 'bytes',
-            'Content-Type': mime_type
         }
-
-        return Response(data, status_code=206, headers=headers)
-    
-    # request without range(first load)
-    with open(track_file, 'rb') as f:
-        data = f.read()
-    headers = {
-        'Content-Length': str(file_size),
-        'Accept-Ranges': 'bytes',
-        'Content-Type': mime_type
-    }
-    return Response(data, status_code=200, headers=headers)
+    )
