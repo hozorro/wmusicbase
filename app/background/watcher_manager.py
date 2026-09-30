@@ -13,7 +13,8 @@
 # use this module and enable trigger in the frontend.
 #
 # If use watcher in separated process, 
-# use supervisor to manage watcher with the watcher.py module.
+# use supervisor to manage watcher with the watcher.py module,
+# and disable trigger in the frontend.
 
 import asyncio, time
 from datetime import datetime, timezone
