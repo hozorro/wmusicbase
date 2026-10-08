@@ -71,6 +71,9 @@ app.add_middleware(TraceIdMiddleware)
 
 #=========== Including routers ===================
 app.include_router(api_router, prefix="/api/v1")
+@app.get("/healthz")
+def healthz():
+    return {"status": "healthy"}
 
 #=========== Static file serving (DEBUG only) ====
 # In production, nginx serves these files directly from ARTWORK_DIR
