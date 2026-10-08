@@ -1,8 +1,8 @@
-"""initial
+"""squashed initial migration
 
-Revision ID: 5b4f0668b22a
+Revision ID: 817d80b94905
 Revises: 
-Create Date: 2025-11-03 14:58:48.629062
+Create Date: 2026-10-08 14:54:55.771834
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '5b4f0668b22a'
+revision: str = '817d80b94905'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -24,6 +24,8 @@ def upgrade() -> None:
     op.create_table('artists',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(), nullable=False),
+    sa.Column('face_art_hash', sa.String(length=40), nullable=True),
+    sa.Column('portrait_art_hash', sa.String(length=40), nullable=True),
     sa.Column('mb_artistid', sa.String(), nullable=True),
     sa.Column('info', sa.JSON(), nullable=True),
     sa.Column('sort_name', sa.String(), nullable=False),
@@ -35,9 +37,13 @@ def upgrade() -> None:
     sa.UniqueConstraint('name', name='uq_artist_name')
     )
     op.create_index(op.f('ix_artists_created_at'), 'artists', ['created_at'], unique=False)
+    op.create_index(op.f('ix_artists_face_art_hash'), 'artists', ['face_art_hash'], unique=False)
+    op.create_index('ix_artists_has_face', 'artists', ['face_art_hash'], unique=False)
+    op.create_index('ix_artists_has_portrait', 'artists', ['portrait_art_hash'], unique=False)
     op.create_index(op.f('ix_artists_mb_artistid'), 'artists', ['mb_artistid'], unique=False)
     op.create_index(op.f('ix_artists_name'), 'artists', ['name'], unique=False)
-    op.create_index(op.f('ix_artists_pinyin_initial'), 'artists', ['pinyin_initial'], unique=False)
+    op.create_index('ix_artists_pinyin_initial', 'artists', ['pinyin_initial'], unique=False)
+    op.create_index(op.f('ix_artists_portrait_art_hash'), 'artists', ['portrait_art_hash'], unique=False)
     op.create_index(op.f('ix_artists_sort_name'), 'artists', ['sort_name'], unique=False)
     op.create_index(op.f('ix_artists_updated_at'), 'artists', ['updated_at'], unique=False)
     op.create_table('folders',
@@ -71,8 +77,6 @@ def upgrade() -> None:
     sa.Column('username', sa.String(length=50), nullable=False),
     sa.Column('password_hash', sa.String(), nullable=False),
     sa.Column('is_admin', sa.Boolean(), nullable=False),
-    sa.Column('last_login_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
-    sa.Column('refresh_token', sa.String(length=255), nullable=True),
     sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('id')
@@ -84,6 +88,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('title', sa.String(), nullable=False),
     sa.Column('year', sa.Integer(), nullable=True),
+    sa.Column('cover_art_hash', sa.String(length=40), nullable=True),
     sa.Column('mb_albumid', sa.String(), nullable=True),
     sa.Column('album_artist_id', sa.Integer(), nullable=True),
     sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -92,31 +97,81 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('title', 'album_artist_id', name='uq_album_title_artist')
     )
+    op.create_index(op.f('ix_albums_cover_art_hash'), 'albums', ['cover_art_hash'], unique=False)
     op.create_index(op.f('ix_albums_created_at'), 'albums', ['created_at'], unique=False)
+    op.create_index('ix_albums_has_cover', 'albums', ['cover_art_hash'], unique=False)
     op.create_index(op.f('ix_albums_mb_albumid'), 'albums', ['mb_albumid'], unique=False)
     op.create_index(op.f('ix_albums_updated_at'), 'albums', ['updated_at'], unique=False)
     op.create_table('artist_favorites',
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('artist_id', sa.Integer(), nullable=False),
-    sa.Column('favorited_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('favorited_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['artist_id'], ['artists.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('user_id', 'artist_id'),
     sa.UniqueConstraint('user_id', 'artist_id')
     )
+    op.create_table('artist_hits',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('artist_id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('played_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['artist_id'], ['artists.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_artist_hits_artist_id', 'artist_hits', ['artist_id'], unique=False)
+    op.create_index(op.f('ix_artist_hits_played_at'), 'artist_hits', ['played_at'], unique=False)
+    op.create_index('ix_artist_hits_user_played_at', 'artist_hits', ['user_id', 'played_at'], unique=False)
     op.create_table('playlists',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('title', sa.String(length=255), nullable=False),
     sa.Column('comment', sa.String(), nullable=True),
+    sa.Column('cover_art_hash', sa.String(length=40), nullable=True),
     sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), nullable=False),
     sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_playlists_cover_art_hash'), 'playlists', ['cover_art_hash'], unique=False)
     op.create_index(op.f('ix_playlists_created_at'), 'playlists', ['created_at'], unique=False)
     op.create_index(op.f('ix_playlists_updated_at'), 'playlists', ['updated_at'], unique=False)
     op.create_index(op.f('ix_playlists_user_id'), 'playlists', ['user_id'], unique=False)
+    op.create_table('user_tokens',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('client_type', sa.String(length=20), nullable=False),
+    sa.Column('device_id', sa.String(length=64), nullable=False),
+    sa.Column('refresh_token_hash', sa.String(length=255), nullable=False),
+    sa.Column('access_token_jti', sa.String(length=64), nullable=False),
+    sa.Column('expires_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
+    sa.Column('is_revoked', sa.Boolean(), nullable=False),
+    sa.Column('last_used_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_user_tokens_client_type'), 'user_tokens', ['client_type'], unique=False)
+    op.create_index(op.f('ix_user_tokens_device_id'), 'user_tokens', ['device_id'], unique=False)
+    op.create_index(op.f('ix_user_tokens_expires_at'), 'user_tokens', ['expires_at'], unique=False)
+    op.create_index(op.f('ix_user_tokens_is_revoked'), 'user_tokens', ['is_revoked'], unique=False)
+    op.create_index(op.f('ix_user_tokens_refresh_token_hash'), 'user_tokens', ['refresh_token_hash'], unique=False)
+    op.create_index('ix_user_tokens_unique', 'user_tokens', ['user_id', 'client_type', 'device_id'], unique=True)
+    op.create_index('ix_user_tokens_user_client', 'user_tokens', ['user_id', 'client_type'], unique=False)
+    op.create_table('playlist_hits',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('playlist_id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('played_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['playlist_id'], ['playlists.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_playlist_hits_played_at'), 'playlist_hits', ['played_at'], unique=False)
+    op.create_index('ix_playlist_hits_playlist_id', 'playlist_hits', ['playlist_id'], unique=False)
+    op.create_index('ix_playlist_hits_user_played_at', 'playlist_hits', ['user_id', 'played_at'], unique=False)
     op.create_table('tracks',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('title', sa.String(), nullable=False),
@@ -144,7 +199,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_tracks_created_at'), 'tracks', ['created_at'], unique=False)
     op.create_index('ix_tracks_has_cover', 'tracks', ['cover_art_hash'], unique=False)
     op.create_index('ix_tracks_is_deleted', 'tracks', ['is_deleted'], unique=False)
-    op.create_index('ix_tracks_path', 'tracks', ['path'], unique=False)
+    op.create_index(op.f('ix_tracks_path'), 'tracks', ['path'], unique=True)
     op.create_index(op.f('ix_tracks_updated_at'), 'tracks', ['updated_at'], unique=False)
     op.create_table('playlist_tracks',
     sa.Column('playlist_id', sa.Integer(), nullable=False),
@@ -163,10 +218,12 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['track_id'], ['tracks.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('track_id', 'artist_id')
     )
+    op.create_index('ix_track_artist_artist_id', 'track_artists', ['artist_id'], unique=False)
+    op.create_index('ix_track_artist_track_id', 'track_artists', ['track_id'], unique=False)
     op.create_table('track_favorites',
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('track_id', sa.Integer(), nullable=False),
-    sa.Column('favorited_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('favorited_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['track_id'], ['tracks.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('user_id', 'track_id'),
@@ -179,48 +236,75 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['track_id'], ['tracks.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('track_id', 'genre_id')
     )
+    op.create_index('ix_track_genre_genre_id', 'track_genres', ['genre_id'], unique=False)
+    op.create_index('ix_track_genre_track_id', 'track_genres', ['track_id'], unique=False)
     op.create_table('track_hits',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('track_id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('played_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('played_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['track_id'], ['tracks.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_track_hits_played_at'), 'track_hits', ['played_at'], unique=False)
     op.create_index('ix_track_hits_track_id', 'track_hits', ['track_id'], unique=False)
+    op.create_index('ix_track_hits_user_play_at', 'track_hits', ['user_id', 'played_at'], unique=False)
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index('ix_track_hits_user_play_at', table_name='track_hits')
     op.drop_index('ix_track_hits_track_id', table_name='track_hits')
     op.drop_index(op.f('ix_track_hits_played_at'), table_name='track_hits')
     op.drop_table('track_hits')
+    op.drop_index('ix_track_genre_track_id', table_name='track_genres')
+    op.drop_index('ix_track_genre_genre_id', table_name='track_genres')
     op.drop_table('track_genres')
     op.drop_table('track_favorites')
+    op.drop_index('ix_track_artist_track_id', table_name='track_artists')
+    op.drop_index('ix_track_artist_artist_id', table_name='track_artists')
     op.drop_table('track_artists')
     op.drop_index('ix_playlist_tracks_position', table_name='playlist_tracks')
     op.drop_index('ix_playlist_tracks_playlist_id', table_name='playlist_tracks')
     op.drop_table('playlist_tracks')
     op.drop_index(op.f('ix_tracks_updated_at'), table_name='tracks')
-    op.drop_index('ix_tracks_path', table_name='tracks')
+    op.drop_index(op.f('ix_tracks_path'), table_name='tracks')
     op.drop_index('ix_tracks_is_deleted', table_name='tracks')
     op.drop_index('ix_tracks_has_cover', table_name='tracks')
     op.drop_index(op.f('ix_tracks_created_at'), table_name='tracks')
     op.drop_index(op.f('ix_tracks_cover_art_hash'), table_name='tracks')
     op.drop_index('ix_tracks_album_id', table_name='tracks')
     op.drop_table('tracks')
+    op.drop_index('ix_playlist_hits_user_played_at', table_name='playlist_hits')
+    op.drop_index('ix_playlist_hits_playlist_id', table_name='playlist_hits')
+    op.drop_index(op.f('ix_playlist_hits_played_at'), table_name='playlist_hits')
+    op.drop_table('playlist_hits')
+    op.drop_index('ix_user_tokens_user_client', table_name='user_tokens')
+    op.drop_index('ix_user_tokens_unique', table_name='user_tokens')
+    op.drop_index(op.f('ix_user_tokens_refresh_token_hash'), table_name='user_tokens')
+    op.drop_index(op.f('ix_user_tokens_is_revoked'), table_name='user_tokens')
+    op.drop_index(op.f('ix_user_tokens_expires_at'), table_name='user_tokens')
+    op.drop_index(op.f('ix_user_tokens_device_id'), table_name='user_tokens')
+    op.drop_index(op.f('ix_user_tokens_client_type'), table_name='user_tokens')
+    op.drop_table('user_tokens')
     op.drop_index(op.f('ix_playlists_user_id'), table_name='playlists')
     op.drop_index(op.f('ix_playlists_updated_at'), table_name='playlists')
     op.drop_index(op.f('ix_playlists_created_at'), table_name='playlists')
+    op.drop_index(op.f('ix_playlists_cover_art_hash'), table_name='playlists')
     op.drop_table('playlists')
+    op.drop_index('ix_artist_hits_user_played_at', table_name='artist_hits')
+    op.drop_index(op.f('ix_artist_hits_played_at'), table_name='artist_hits')
+    op.drop_index('ix_artist_hits_artist_id', table_name='artist_hits')
+    op.drop_table('artist_hits')
     op.drop_table('artist_favorites')
     op.drop_index(op.f('ix_albums_updated_at'), table_name='albums')
     op.drop_index(op.f('ix_albums_mb_albumid'), table_name='albums')
+    op.drop_index('ix_albums_has_cover', table_name='albums')
     op.drop_index(op.f('ix_albums_created_at'), table_name='albums')
+    op.drop_index(op.f('ix_albums_cover_art_hash'), table_name='albums')
     op.drop_table('albums')
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_updated_at'), table_name='users')
@@ -236,9 +320,13 @@ def downgrade() -> None:
     op.drop_table('folders')
     op.drop_index(op.f('ix_artists_updated_at'), table_name='artists')
     op.drop_index(op.f('ix_artists_sort_name'), table_name='artists')
-    op.drop_index(op.f('ix_artists_pinyin_initial'), table_name='artists')
+    op.drop_index(op.f('ix_artists_portrait_art_hash'), table_name='artists')
+    op.drop_index('ix_artists_pinyin_initial', table_name='artists')
     op.drop_index(op.f('ix_artists_name'), table_name='artists')
     op.drop_index(op.f('ix_artists_mb_artistid'), table_name='artists')
+    op.drop_index('ix_artists_has_portrait', table_name='artists')
+    op.drop_index('ix_artists_has_face', table_name='artists')
+    op.drop_index(op.f('ix_artists_face_art_hash'), table_name='artists')
     op.drop_index(op.f('ix_artists_created_at'), table_name='artists')
     op.drop_table('artists')
     # ### end Alembic commands ###
