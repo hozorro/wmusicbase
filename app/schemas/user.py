@@ -29,8 +29,8 @@ class UserDetail(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    client_type: str
-    device_id: str
+    client_type: str | None = None
+    device_id: str | None = None
     last_login_at: datetime | None = None
 
 class TokenData(BaseModel):

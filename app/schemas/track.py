@@ -28,6 +28,7 @@ class TrackMoreInfoResponse(TrackBase):
     acoustid_id: str | None
     mb_trackid: str | None
     path: str
+    created_at: datetime
 
 class TrackDetail(TrackBase):
     artists: list[str]
