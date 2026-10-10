@@ -1,7 +1,18 @@
-# WMusicbase
-WMusicbase is a personal musicbase system.
+# Introduction
+WMusicbase is a personal musicbase api backend. Through the request from frontend(player and manager), it can:
+- Scan music files from music library and analyze meta data to the database. Support mp3 file with ID3v1, ID3v2, and flac files, with enforced decoding function.
+- Analyze or extract artwork of all the artists, albums and tracks and generate artwork cache at one time.
+- Organize music with artist, album, genre, folder and playlist. The artists and genres of a certain track is analyzed as list and organized one by one.
+- Streaming files to the frontend PWA player.
+- Supply lyrics to the forntend PWA player(request from 3rd part function).
+- Upload, stage and archive music files to the music library from frontend web page.
+- Edit track meta data, cover art of artist, album and track from the frontend web page.
+- Automatically or manually match with MusicBrainZ data by generating an audio fingerprint.
+- Backup and restore playback data(playlists, hits, favs).
 
-## Installation
+The project is the backend of and used together with [WMusicPlayer](https://github.com/hozorro/wmusicplayer) and [WMusicMan](https://github.com/hozorro/wmusicman).
+
+# Installation
 * pull the repo
 ```bash
 git clone git@github.com:hozorro/wmusicbase.git
@@ -9,96 +20,73 @@ cd wmusicbase
 ```
 * install dependencies
 `uv sync`
-
 * install chromaprint
   * If you do not use chromaprint to generate fingerprint of audio files to match musicbrainz info, you can skip this step.
   * Chromaprint is a library for fingerprinting audio files. There are two ways to use chromaprint:
     * make the chromaprint dynamic library from [source code](https://github.com/acoustid/chromaprint)
     * the [fpcalc command-line tool](https://github.com/acoustid/chromaprint/releases). If you use fpcalc, either ensure that it is on your $PATH or set the FPCALC environment variable to its location.
-
-* create or edit .env(see .env.example)
-
-* initialization
+* create database(postgresql)
+* create or edit .env(copy from .env.example)
+* initialization:
 ```bash
 uv run init-dirs
 uv run init-db
 ```
-* run
+
+# Deployment
+## dev or test
+```bash
+uv run uvicorn app.main:app --reload      # run main app
+uv run python -m app.background.watcher   # run watcher
+```
+
+## run by supervisor (recomended)
+- create supervisor conf file in `/etc/supervisor/conf.d/`(copy from template in `deploy` dir of this proj).
+- run:
 ```bash
 sudo supervisorctl reread
 sudo supervisorctl update
-sudo supervisorctl start wmusicbase
+sudo supervisorctl start wmusicbase:* # restart main app and watcher at the same time
+```
 
-sudo systemctl restart nginx
+## nginx proxy api service for frontend
+- create nginx conf file(copy from template in `deploy` dir of this proj, including frontend configure).
+- run:
+```bash
+sudo nginx -t
+sudo nginx -s reload
 ```
 
 ## Update
 * pull the repo
 ```bash
 git pull
-uv sync
-uv run init-db
-sudo supervisorctl restart wmusicbase
+uv sync         # if pyproject.toml changed
+uv run init-db  # if alembic version changed
+sudo supervisorctl restart wmusicbase:* # restart main app and watcher at the same time
 ```
 
-## Additional
-### Gunicorn
-* Install gunicorn: 
-  * if use gunicorn only in this project, you can use edit `pyproject.toml` and add "gunicorn>=23,<26".
-  * if use gunicorn in other projects on the server, you can run `sudo apt install gunicorn`.[wrong: even if you install gunicorn in the global environment, you still need to install gunicorn in the project venv. because even if you set PATH env in the supervisor configuration file, it will not work.]
-### Supervisor
-* Install supervisor: `sudo apt install supervisor`
-* Create a configuration file: `sudo nano /etc/supervisor/conf.d/wmusicbase.conf`
-suppose the project is in `/srv/wmusicbase`, the configuration file is as follows:
-```
-[program:wmusicbase]
-directory=/srv/wmusicbase
-; if you use more than one worker, you should use redis to share system state
-command=/srv/wmusicbase/.venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 1 -b 127.0.0.1:8000
-user=www-data ; user, change to your user
-autostart=true
-autorestart=true
-stopasgroup=true
-killasgroup=true
-stdout_logfile=/srv/wmusicbase/logs/supervisor_stdout.log
-stderr_logfile=/srv/wmusicbase/logs/supervisor_stderr.log
-```
-### Nginx
-* Install nginx: `sudo apt install nginx`
-* Create a configuration file: `sudo nano /etc/nginx/sites-available/wmusicbase`
-suppose the project is in `/srv/wmusicbase`, the configuration file is as follows:
-```
-server {
-    listen 80;
-    server_name your-domain.com;
+## Docker depolyment
+An umbrella repository is recomended, look up [wmusic-suite](https://github.com/hozorro/wmusic-suite).
 
-    client_max_body_size 100M;
+# Additional
+## About database
+- Only PostgreSQL supported, if use sqlite, modify the relevant code.
 
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-    }
-}
+## About music library directory structure
+- Most of the project features including scanning process and music database etc. **are unconcerned with** the music library directory struction.
+- If you upload/archive music files directly to the music library directory, the music library directory structure is also **unconcerned**.
+- But when you upload music files, stage then archive them to the music library directory from web page of wmusicman(music management frontend), a normal structure used:
+```plaintext
+(Chinese or Foreign)
+  └── (first alpherbit range of artist name, A-G, H-N, O-T, U-Z, Z_)
+        └── (artist name) 
+              └── (album title)
+                    └── (track file)
 ```
-### uv
-uv is a simple tool to manage virtual environments and project dependencies.
-* Install uv: 
-  * Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-  * Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-### About www-data
-  * Since www-data is ususally used for web service processes such as nginx, apache etc., you can use it to run your project.
-  * Therefore, you need to config the authentication of www-data.
-  ```bash
-  sudo chown -R youruser:www-data /srv/wmusicbase
-  sudo find /srv/wmusicbase -type d -exec chmod 750 {} \;
-  sudo find /srv/wmusicbase -type f -exec chmod 640 {} \;
-  sudo chmod -R 770 /srv/wmusicbase/media
-  sudo chmod -R 770 /srv/wmusicbase/logs
-  ```
+- That means when you archive music files, some dirs will be made automatically with track file like the structure.
+- If you don't want that, modify the relevant file-archive code.
+
+## About authentication
+- The user run this project should have authentication to read and write music library directory and media root directory.
+- The nginx user(www-data) should have authentication to read music library directory and media root directory.
