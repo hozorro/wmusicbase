@@ -6,10 +6,11 @@ WMusicbase is a personal musicbase api backend. Through the request from fronten
 - Streaming files to the frontend PWA player.
 - Supply lyrics to the forntend PWA player(request from 3rd part function).
 - Upload, stage and archive music files to the music library from frontend web page.
-- Edit track meta data and cover art from the frontend web page.
+- Edit track meta data, cover art of artist, album and track from the frontend web page.
+- Automatically or manually match with MusicBrainZ data by generating an audio fingerprint.
 - Backup and restore playback data(playlists, hits, favs).
 
-The project is the backend of and used together with [wmusicplayer](https://github.com/hozorro/wmusicplayer) and [wmusicman](https://github.com/hozorro/wmusicman).
+The project is the backend of and used together with [WMusicPlayer](https://github.com/hozorro/wmusicplayer) and [WMusicMan](https://github.com/hozorro/wmusicman).
 
 # Installation
 * pull the repo
