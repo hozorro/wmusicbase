@@ -295,8 +295,9 @@ class ArtworkService:
                 if not group_path.exists(): continue
 
                 artist_dir = music_root / lang / group / sanitize_folder_name(artist_name)
-                if artist_dir.is_dir():
-                    return artist_dir
+                if not artist_dir.is_dir(): # if not exists, create it
+                    artist_dir.mkdir(parents=True, exist_ok=True)
+                return artist_dir
                 
         return None
 

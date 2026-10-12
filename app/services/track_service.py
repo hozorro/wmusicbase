@@ -32,6 +32,27 @@ class TrackService:
         audio_meta = AudioMeta(file_path)
         audio_meta.update_metadata(data)
 
+    async def update_track_cover(self, track_id: int, cover_data: bytes) -> None:
+        '''write cover art image bytes into the track file tag, then regenerate static artwork and update hash'''
+        from app.services.artwork_service import ArtworkService
+        track = await self.db.get(Track, track_id)
+        if not track:
+            raise BusinessException(
+                code=30304,
+                msg=f'track not exists: {track_id}',
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        track_path = str((self.settings.MUSIC_LIBRARY_PATH / track.path).resolve())
+        # write cover art into the audio file tag
+        audio_meta = AudioMeta(track_path)
+        audio_meta.update_metadata({'cover_art_data': cover_data})
+        # regenerate static artwork file and update cover_art_hash
+        artwork_service = ArtworkService(self.db, self.settings)
+        new_hash = await artwork_service.sync_track_artwork(track_id)
+        if new_hash:
+            track.cover_art_hash = new_hash
+            await self.db.commit()
+
     async def update_tracks_field_tag(self, track_ids: list[int], field: str, value: str | int | list[str]) -> list[str]:
         '''update track field tag, used for batch editing'''
         tracks = await self.db.execute(select(Track).where(Track.id.in_(track_ids)))
@@ -39,7 +60,8 @@ class TrackService:
         errors = []
         for track_path in track_paths:
             try:
-                self._update_track_file_tag(track_path, {field: value})
+                track_path_abs = str((self.settings.MUSIC_LIBRARY_PATH / track_path).resolve())
+                self._update_track_file_tag(track_path_abs, {field: value})
             except Exception as e:
                 errors.append({
                     'track_path': track_path,
