@@ -108,6 +108,33 @@ async def upload_album_art(item: AlbumArtCreate = Depends(album_art_upload_from_
         )
     return ResponseModel(data=CountResponse(count=item.id))
 
+@router.post('/updatetrackcover', response_model=ResponseModel[int], tags=['edit'])
+async def update_track_cover(
+    file: UploadFile = File(...),
+    track_id: int = Form(...),
+    service: TrackService = Depends(TrackService)
+):
+    '''upload a cover image and write it into the track file tag, then update cover_art_hash'''
+    if file.content_type not in ['image/jpeg', 'image/png']:
+        raise BusinessException(
+            code=60315,
+            msg='only jpg and png files are allowed',
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        )
+    content = await file.read()
+    await file.close()
+    try:
+        await service.update_track_cover(track_id, content)
+    except BusinessException:
+        raise
+    except Exception as e:
+        raise BusinessException(
+            code=60306,
+            msg=f'failed to update track cover: {str(e)[:100]}',
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    return ResponseModel(data=track_id)
+
 @router.post('/updatetrackfieldtag', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
 async def update_track_field_tag(data: UpdateMetaTagList, service: TrackService = Depends(TrackService)):
     errors = await service.update_tracks_field_tag(data.items, data.field, data.value)
