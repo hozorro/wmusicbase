@@ -246,7 +246,7 @@ async def archive_session_route(
     lang: str | None = 'CN', 
     service: ArchiveService = Depends(ArchiveService),
 ):
-    errors = await service.archive_session(session_id, input.items, input.playlist, lang)
+    errors = await service.archive_session(session_id, input.items, lang, input.is_use_original_name, input.playlist)
     if errors:
         errors_str = '\n  '.join([f"{item['file']}: {item['error']}" for item in errors])
         error_files = [item['file'] for item in errors]

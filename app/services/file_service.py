@@ -192,7 +192,7 @@ class ArchiveService:
         else:
             return base / track_title
 
-    async def archive_session(self, session_id: str, items: list[str], playlist: str, lang: str) -> list[str]:
+    async def archive_session(self, session_id: str, items: list[str], lang: str, is_use_original_name: bool, playlist: str | None) -> list[str]:
         '''archive all the files in the staging session directory to its proper place in the music library'''
         session_dir = self.settings.STAGING_DIR / session_id
         songs_dir = session_dir / 'songs'
@@ -216,7 +216,10 @@ class ArchiveService:
             elif meta['artists']:
                 artist_name = meta['artists'][0]
             # 3. recognize file name(track title first, then the filename)
-            filename = (meta.get('title') + song_file.suffix) or song_file.name[33:] # trim the uuid ahead(32 chars)
+            if not is_use_original_name and meta.get('title'):
+                filename = meta.get('title') + song_file.suffix
+            else:
+                filename = song_file.name[33:]  # trim the uuid ahead(32 chars)
             # 4. generate target path
             try:
                 target_path = self._generate_target_path(lang, artist_name, meta.get('album'), filename)

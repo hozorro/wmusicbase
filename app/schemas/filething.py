@@ -132,7 +132,8 @@ class UpdateMetaTagList(BaseModel): # single tag
 
 class CreateArchive(BaseModel):
     items: list[str]
-    playlist: str | None
+    is_use_original_name: bool = False
+    playlist: str | None = None
 
 class DeleteStagingFiles(BaseModel):
     items: list[str]
