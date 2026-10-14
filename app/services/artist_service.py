@@ -10,7 +10,7 @@
 
 
 from fastapi import Request
-from sqlalchemy import select, literal_column, case, func, desc, nulls_last
+from sqlalchemy import select, literal_column, case, func, desc, nulls_last, delete
 from sqlalchemy.orm import load_only, selectinload, joinedload
 from app.core.deps import SettingsDep, DbDep
 from app.models.artist import Artist
@@ -218,5 +218,92 @@ class ArtistService:
         )
         result = await self.db.execute(stmt)
         return result.scalars().all()
-    
-    # endregion frontend use    
+
+    # endregion frontend use
+
+    # region orphan artist management
+    async def get_orphan_artists(self) -> list[Artist]:
+        '''
+        get orphan artists (artists without any track or album association)
+        Returns:
+            list[Artist]: list of orphan artists
+        '''
+        # subquery: artist ids that have tracks
+        artist_with_tracks = (
+            select(track_artists.c.artist_id)
+            .distinct()
+            .scalar_subquery()
+        )
+        # subquery: artist ids that have albums as main artist
+        artist_with_albums = (
+            select(Album.album_artist_id)
+            .where(Album.album_artist_id.isnot(None))
+            .distinct()
+            .scalar_subquery()
+        )
+        # main query: artists not in either subquery
+        stmt = (
+            select(Artist)
+            .where(Artist.id.notin_(artist_with_tracks))
+            .where(Artist.id.notin_(artist_with_albums))
+            .order_by(Artist.name)
+            .options(
+                load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash)
+            )
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
+    async def cleanup_orphan_artists(self, artist_ids: list[int]) -> tuple[list[Artist], list[int]]:
+        '''
+        cleanup orphan artists (delete artists and their artwork files)
+        Args:
+            artist_ids: list of artist ids to cleanup
+        Returns:
+            tuple[list[Artist], list[int]]: (deleted artists, failed ids)
+        '''
+        deleted_artists = []
+        failed_ids = []
+
+        for artist_id in artist_ids:
+            try:
+                # verify artist exists and is orphan
+                artist = await self.db.get(Artist, artist_id)
+                if not artist:
+                    failed_ids.append(artist_id)
+                    continue
+
+                # check if artist has any track association
+                track_count = await self.db.scalar(
+                    select(func.count(track_artists.c.track_id))
+                    .where(track_artists.c.artist_id == artist_id)
+                )
+                if track_count > 0:
+                    failed_ids.append(artist_id)
+                    continue
+
+                # check if artist has any album association
+                album_count = await self.db.scalar(
+                    select(func.count(Album.id))
+                    .where(Album.album_artist_id == artist_id)
+                )
+                if album_count > 0:
+                    failed_ids.append(artist_id)
+                    continue
+
+                # delete artwork files
+                artwork_service = ArtworkService(self.db, self.settings)
+                artwork_service.invalidate_artwork_cache(artist_id, 'artist', 'face')
+                artwork_service.invalidate_artwork_cache(artist_id, 'artist', 'portrait')
+
+                # delete artist record
+                await self.db.delete(artist)
+                deleted_artists.append(artist)
+
+            except Exception:
+                failed_ids.append(artist_id)
+
+        await self.db.commit()
+        return deleted_artists, failed_ids
+
+    # endregion orphan artist management

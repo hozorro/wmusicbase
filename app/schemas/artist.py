@@ -11,7 +11,7 @@
 
 from fastapi import UploadFile, Form, File
 from pydantic import BaseModel, Field
-from .common import ArtistBase, ArtistBrief, AlbumBase, TrackBrief
+from .common import ArtistBase, ArtistBrief, ArtistPrimary, AlbumBase, TrackBrief
 
 class ArtistArtCreate(BaseModel):
     id: int
@@ -39,3 +39,17 @@ class ArtistDetailResponse(ArtistBrief):
     track_albums: list[AlbumBase]
     top_tracks: list[TrackBrief]
     track_count: int
+
+class OrphanArtistResponse(ArtistBase):
+    '''orphan artist response'''
+    pass
+
+class OrphanArtistCleanupRequest(BaseModel):
+    '''orphan artist cleanup request'''
+    artist_ids: list[int] = Field(..., description='List of artist ids to cleanup')
+
+class OrphanArtistCleanupResponse(BaseModel):
+    '''orphan artist cleanup response'''
+    deleted_count: int
+    deleted_artists: list[ArtistPrimary]
+    failed_ids: list[int] = []

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, UploadFile, Form, File, status
 from pydantic import BaseModel
 from app.schemas.common import ArtistWithCreated, ResponseModel, SuccessMsgModel, CountResponse, ArtistBase
 from app.schemas.filething import UpdateMetaTagList
-from app.schemas.artist import ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate
+from app.schemas.artist import ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate, OrphanArtistResponse, OrphanArtistCleanupRequest, OrphanArtistCleanupResponse
 from app.schemas.album import AlbumResponse, AlbumArtCreate, album_art_upload_from_form
 from app.core.exceptions import BusinessException
 from app.core.deps import ADMIN_DEPS
@@ -244,3 +244,25 @@ async def set_artist_art(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     return ResponseModel(data='ok')
+
+
+# ============ Orphan Artist Management APIs ============
+
+@router.get('/orphan/artists', response_model=ResponseModel[list[OrphanArtistResponse]], tags=['edit'])
+async def get_orphan_artists(service: ArtistService = Depends(ArtistService)):
+    '''get orphan artists (artists without any track or album association)'''
+    artists = await service.get_orphan_artists()
+    return ResponseModel(data=[OrphanArtistResponse.model_validate(a) for a in artists])
+
+@router.post('/orphan/artists/cleanup', response_model=ResponseModel[OrphanArtistCleanupResponse], tags=['edit'])
+async def cleanup_orphan_artists(
+    request: OrphanArtistCleanupRequest,
+    service: ArtistService = Depends(ArtistService)
+):
+    '''cleanup orphan artists (delete artists and their artwork files)'''
+    deleted_artists, failed_ids = await service.cleanup_orphan_artists(request.artist_ids)
+    return ResponseModel(data=OrphanArtistCleanupResponse(
+        deleted_count=len(deleted_artists),
+        deleted_artists=[ArtistBase.model_validate(a) for a in deleted_artists],
+        failed_ids=failed_ids
+    ))
