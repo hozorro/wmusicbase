@@ -11,7 +11,7 @@
 
 from fastapi import UploadFile, Form, File
 from pydantic import BaseModel, Field
-from .common import ArtistBase, ArtistBrief, AlbumBase, TrackBrief
+from .common import ArtistBase, ArtistBrief, ArtistPrimary, AlbumBase, TrackBrief
 
 class ArtistArtCreate(BaseModel):
     id: int
