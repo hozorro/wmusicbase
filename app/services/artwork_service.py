@@ -331,7 +331,7 @@ class ArtworkService:
         candidates.sort(key=lambda x: x[0])
         return candidates[0][1]
 
-    async def get_artist_art_candidates(self, artist_id: int, art_type: str) -> tuple[string | None, list[str]]:
+    async def get_artist_art_candidates(self, artist_id: int, art_type: str) -> tuple[str | None, list[str]]:
         '''
         get candidate artwork filenames for an artist
         returns list of filenames matching {art_type}_N.jpg pattern, naturally sorted
