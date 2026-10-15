@@ -295,10 +295,8 @@ class ArtworkService:
                 if not group_path.exists(): continue
 
                 artist_dir = music_root / lang / group / sanitize_folder_name(artist_name)
-                if not artist_dir.is_dir(): # if not exists, create it
-                    artist_dir.mkdir(parents=True, exist_ok=True)
-                return artist_dir
-                
+                if artist_dir.is_dir(): 
+                    return artist_dir
         return None
 
     async def find_artist_image_in_directory(self, artist_name: str, img_cate: str) -> Path | None:
@@ -333,7 +331,7 @@ class ArtworkService:
         candidates.sort(key=lambda x: x[0])
         return candidates[0][1]
 
-    async def get_artist_art_candidates(self, artist_id: int, art_type: str) -> list[str]:
+    async def get_artist_art_candidates(self, artist_id: int, art_type: str) -> tuple[string | None, list[str]]:
         '''
         get candidate artwork filenames for an artist
         returns list of filenames matching {art_type}_N.jpg pattern, naturally sorted
@@ -343,7 +341,7 @@ class ArtworkService:
             raise ValueError(f'Artist {artist_id} not found')
         artist_dir = self.get_artist_directory(artist.name)
         if not artist_dir:
-            return []
+            return None, []
         pattern = re.compile(rf'^{art_type}_(\d+)\.(jpg|jpeg|png)$', re.I)
         candidates = []
         for entry in artist_dir.iterdir():
@@ -352,7 +350,7 @@ class ArtworkService:
                 if match:
                     candidates.append((int(match.group(1)), entry.name))
         candidates.sort(key=lambda x: x[0])
-        return [name for _, name in candidates]
+        return str(artist_dir.relative_to(self.settings.MUSIC_LIBRARY_PATH)), [name for _, name in candidates]
 
     def _find_lowest_available_number(self, existing_numbers: list[int]) -> int:
         '''find the lowest positive integer not in the list'''
