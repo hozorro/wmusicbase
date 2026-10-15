@@ -197,14 +197,14 @@ async def create_artist_dir(
     data: CreateArtistDirRequest,
     service: ArtistService = Depends(ArtistService)
 ):
-    # try:
-    artist_dir = await service.create_artist_dir(data.artist_name, data.lang)
-    # except Exception as e:
-    #     raise BusinessException(
-    #         code=60117, 
-    #         msg='failed to create artist directory', 
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-    #     )
+    try:
+        artist_dir = await service.create_artist_dir(data.artist_name, data.lang)
+    except Exception as e:
+        raise BusinessException(
+            code=60117, 
+            msg='failed to create artist directory', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     return ResponseModel(data=artist_dir)
 
 
