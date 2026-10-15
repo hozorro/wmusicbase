@@ -164,6 +164,10 @@ class ArtistArtCandidateResponse(BaseModel):
     art_type: str
     filename: str
 
+class CreateArtistDirRequest(BaseModel):
+    artist_name: str
+    lang: Literal['CN', 'FR']
+
 
 @router.get('/artistartcandidates/{artist_id}', response_model=ResponseModel[dict], tags=['edit'])
 async def get_artist_art_candidates(
@@ -190,12 +194,11 @@ async def get_artist_art_candidates(
 
 @router.post('/createartistdir', response_model=ResponseModel[str], tags=['edit'])
 async def create_artist_dir(
-    artist_name: str,
-    lang: Literal['CN', 'FR'],
+    data: CreateArtistDirRequest,
     service: ArtistService = Depends(ArtistService)
 ):
     try:
-        artist_dir = await service.create_artist_dir(artist_name, lang)
+        artist_dir = await service.create_artist_dir(data.artist_name, data.lang)
     except Exception as e:
         raise BusinessException(
             code=60108, 
