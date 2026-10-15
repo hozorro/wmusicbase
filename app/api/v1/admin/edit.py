@@ -9,6 +9,8 @@
 '''
 
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, UploadFile, Form, File, status
 from pydantic import BaseModel
 from app.schemas.common import ArtistWithCreated, ResponseModel, SuccessMsgModel, CountResponse, ArtistBase
@@ -157,6 +159,15 @@ class SetArtistArtRequest(BaseModel):
     art_type: str
     filename: str
 
+class ArtistArtCandidateResponse(BaseModel):
+    artist_id: int
+    art_type: str
+    filename: str
+
+class CreateArtistDirRequest(BaseModel):
+    artist_name: str
+    lang: Literal['CN', 'FR']
+
 
 @router.get('/artistartcandidates/{artist_id}', response_model=ResponseModel[dict], tags=['edit'])
 async def get_artist_art_candidates(
@@ -172,14 +183,29 @@ async def get_artist_art_candidates(
             status_code=status.HTTP_400_BAD_REQUEST
         )
     try:
-        candidates = await service.get_artist_art_candidates(artist_id, art_type)
+        artist_dir, candidates = await service.get_artist_art_candidates(artist_id, art_type)
     except ValueError as e:
         raise BusinessException(
             code=60108, 
             msg='candidate artist artwork not found', 
             status_code=status.HTTP_404_NOT_FOUND
         )
-    return ResponseModel(data={'candidates': candidates})
+    return ResponseModel(data={'artist_dir': artist_dir, 'candidates': candidates})
+
+@router.post('/createartistdir', response_model=ResponseModel[str], tags=['edit'])
+async def create_artist_dir(
+    data: CreateArtistDirRequest,
+    service: ArtistService = Depends(ArtistService)
+):
+    try:
+        artist_dir = await service.create_artist_dir(data.artist_name, data.lang)
+    except Exception as e:
+        raise BusinessException(
+            code=60117, 
+            msg='failed to create artist directory', 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    return ResponseModel(data=artist_dir)
 
 
 @router.post('/uploadartistartcandidate', response_model=ResponseModel[dict], tags=['edit'])

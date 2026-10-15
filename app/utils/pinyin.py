@@ -53,3 +53,16 @@ def get_artist_sort_fields(name: str) -> tuple[str, str]:
         initial = '_'
 
     return sort_name, initial
+
+def get_initial_group(initial: str) -> str:
+    '''compute initial group name'''
+    if initial == '_':
+        return 'Z_'
+    elif 'A' <= initial <= 'G':
+        return 'A-G'
+    elif 'H' <= initial <= 'N':
+        return 'H-N'
+    elif 'O' <= initial <= 'T':
+        return 'O-T'
+    else:
+        return 'U-Z'

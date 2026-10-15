@@ -19,7 +19,7 @@ from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, User
 from app.utils.metadata import read_metadata
-from app.utils.pinyin import get_artist_sort_fields
+from app.utils.pinyin import get_artist_sort_fields, get_initial_group
 from app.utils.audiofile import AudioMeta
 
 class FileService:
@@ -162,24 +162,11 @@ class ArchiveService:
         self.settings = settings
         self.current_user_id = request.state.user_id
 
-    def _get_initial_group(self, initial: str) -> str:
-        '''compute initial group name'''
-        if initial == '_':
-            return 'Z_'
-        elif 'A' <= initial <= 'G':
-            return 'A-G'
-        elif 'H' <= initial <= 'N':
-            return 'H-N'
-        elif 'O' <= initial <= 'T':
-            return 'O-T'
-        else:
-            return 'U-Z'
-
     def _generate_target_path(self, lang: str, artist_name: str, album_title: str | None, track_title: str) -> Path:
         '''generate archive target path'''
         area = 'Chinese' if lang=='CN' else 'Foreign'
         _, initial = get_artist_sort_fields(artist_name)
-        group = self._get_initial_group(initial)
+        group = get_initial_group(initial)
 
         from app.utils.common import sanitize_folder_name
         artist_name = sanitize_folder_name(artist_name)

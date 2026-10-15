@@ -9,6 +9,8 @@
 '''
 
 
+from typing import Literal
+from pathlib import Path
 from fastapi import Request
 from sqlalchemy import select, literal_column, case, func, desc, nulls_last, delete
 from sqlalchemy.orm import load_only, selectinload, joinedload
@@ -18,6 +20,7 @@ from app.models.album import Album
 from app.models.track import Track, track_artists
 from app.models.playback import TrackHit, ArtistFav
 from app.services.artwork_service import ArtworkService
+from app.utils.pinyin import get_artist_sort_fields, get_initial_group
 
 class ArtistService:
     def __init__(self, db: DbDep, settings: SettingsDep, requst: Request):
@@ -158,6 +161,24 @@ class ArtistService:
             'main_albums': main_albums,
             'track_albums': track_albums,
         }
+
+    async def create_artist_dir(self, artist_name: str, lang: Literal['CN', 'FR']) -> str:
+        '''
+        create artist directory for storing artist artwork
+        Returns:
+            str: artist directory name
+        '''
+        area = 'Chinese' if lang=='CN' else 'Foreign'
+        _, initial = get_artist_sort_fields(artist_name)
+        group = get_initial_group(initial)
+
+        from app.utils.common import sanitize_folder_name
+        artist_name = sanitize_folder_name(artist_name)
+
+        artist_dir = Path(self.settings.MUSIC_LIBRARY_PATH) / area / group / artist_name
+        artist_dir.mkdir(parents=True, exist_ok=True)
+        return str(artist_dir.relative_to(self.settings.MUSIC_LIBRARY_PATH))
+
     # endregion backend use
     
     # region frontend use
