@@ -10,17 +10,18 @@
 
 
 import json
-from io import StringIO, BytesIO
+from io import BytesIO
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import StreamingResponse
 from app.core.deps import SettingsDep, ADMIN_DEPS
 from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel, SuccessMsgModel
-from app.schemas.filething import PlaylistJsonListResponse, PlaylistBackupResponse
+from app.schemas.filething import PlaylistBackupResponse
 from app.schemas.playback import ImportJsonUpload, PlaylistJsonUpload, JsonImportResponse
-from app.schemas.user import UserDetail, UserResponse
+from app.schemas.user import UserDetail
 from app.services.playback_service import PlaylistService, PlayDataService
 from app.services.user_service import UserService
+from app.services.artist_service import ArtistService
 
 router = APIRouter(dependencies=ADMIN_DEPS)
 
@@ -196,3 +197,24 @@ async def import_fav_data(
     data = await service.validate_upload_file(file, 'favorites')
     result = await service.import_fav_from_json(item.user_id, data)
     return ResponseModel(data=JsonImportResponse.model_validate(result))
+
+# ========= test ===========
+@router.get('/exportartists', response_class=StreamingResponse)
+async def export_artists(service: ArtistService = Depends(ArtistService)):
+    data = await service.get_all_artists()
+    json_string = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
+    json_bytes = json_string.encode('utf-8')
+    
+    buffer = BytesIO(json_bytes)
+
+    filename = f'artists.json'
+    return StreamingResponse(
+        content=buffer,
+        media_type='application/json',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': str(len(json_bytes)),
+            'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+        }
+    )
+

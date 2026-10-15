@@ -19,6 +19,7 @@ from app.models.artist import Artist
 from app.models.album import Album
 from app.models.track import Track, track_artists
 from app.models.playback import TrackHit, ArtistFav
+from app.schemas.common import ArtistPrimary
 from app.services.artwork_service import ArtworkService
 from app.utils.pinyin import get_artist_sort_fields, get_initial_group
 
@@ -179,70 +180,6 @@ class ArtistService:
         artist_dir.mkdir(parents=True, exist_ok=True)
         return str(artist_dir.relative_to(self.settings.MUSIC_LIBRARY_PATH))
 
-    # endregion backend use
-    
-    # region frontend use
-    async def get_artist_detail(self, artist_id: int, top_count = 20) -> dict | None:
-        '''get artist detail, including albums, total track numbers, and top20 tracks'''
-        artist = await self.db.get(Artist, artist_id)
-        if artist is None:
-            return None
-        main_albums, track_albums = await self._get_artist_albums_separated(artist_id)
-        track_count = await self.db.scalar(
-            select(func.count(Track.id))
-            .join(track_artists, Track.id == track_artists.c.track_id)
-            .where(track_artists.c.artist_id == artist_id)
-        )
-        # get top 20 tracks of the artist
-        top_tracks = await self._get_top_tracks(artist_id, top_count)
-        artist.main_albums = main_albums
-        artist.track_albums = track_albums
-        artist.track_count = track_count
-        artist.top_tracks = top_tracks
-        return artist
-        
-    async def get_ten_artists(self, user_id: int = 1) -> list[dict]:
-        '''get 10 artists, including 6 most played artists and 4 random artists'''
-        stmt = (
-            select(Artist)
-            .join(track_artists, Artist.id == track_artists.c.artist_id)
-            .join(Track, Track.id == track_artists.c.track_id)
-            .join(TrackHit, Track.id == TrackHit.track_id)
-            .where(TrackHit.user_id == user_id)
-            .having(func.count(TrackHit.id) > 0)
-            .group_by(Artist.id)
-            .order_by(desc(func.count(TrackHit.id)))
-            .limit(6)
-            .options(
-                load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash)
-            )
-        )
-        result_6 = await self.db.execute(stmt)
-        top_artists = result_6.scalars().all()
-
-        # get 4 random artists
-        real_top_artists_num = len(top_artists) # handle the case that most played artists number is less than 6
-        result_4 = await self.db.execute(select(Artist).order_by(func.random()).limit(10 - real_top_artists_num))
-        random_artists = result_4.scalars().all()
-
-        return top_artists + random_artists
-    
-    async def get_favorited_artists(self) -> list[dict]:
-        '''get favorited artists'''
-        stmt = (
-            select(Artist)
-            .join(ArtistFav, Artist.id == ArtistFav.artist_id)
-            .where(ArtistFav.user_id == self.current_user_id)
-            .options(
-                load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash)
-            )
-        )
-        result = await self.db.execute(stmt)
-        return result.scalars().all()
-
-    # endregion frontend use
-
-    # region orphan artist management
     async def get_orphan_artists(self) -> list[Artist]:
         '''
         get orphan artists (artists without any track or album association)
@@ -327,4 +264,73 @@ class ArtistService:
         await self.db.commit()
         return deleted_artists, failed_ids
 
-    # endregion orphan artist management
+    async def get_all_artists(self) -> list:
+        result = await self.db.execute(select(Artist).options(load_only(Artist.id, Artist.name)))
+        artists = result.scalars().all()
+        return [{
+            'id': artist.id,
+            'name': artist.name,
+        } for artist in artists]
+
+    # endregion backend use
+    
+    # region frontend use
+    async def get_artist_detail(self, artist_id: int, top_count = 20) -> dict | None:
+        '''get artist detail, including albums, total track numbers, and top20 tracks'''
+        artist = await self.db.get(Artist, artist_id)
+        if artist is None:
+            return None
+        main_albums, track_albums = await self._get_artist_albums_separated(artist_id)
+        track_count = await self.db.scalar(
+            select(func.count(Track.id))
+            .join(track_artists, Track.id == track_artists.c.track_id)
+            .where(track_artists.c.artist_id == artist_id)
+        )
+        # get top 20 tracks of the artist
+        top_tracks = await self._get_top_tracks(artist_id, top_count)
+        artist.main_albums = main_albums
+        artist.track_albums = track_albums
+        artist.track_count = track_count
+        artist.top_tracks = top_tracks
+        return artist
+        
+    async def get_ten_artists(self, user_id: int = 1) -> list[dict]:
+        '''get 10 artists, including 6 most played artists and 4 random artists'''
+        stmt = (
+            select(Artist)
+            .join(track_artists, Artist.id == track_artists.c.artist_id)
+            .join(Track, Track.id == track_artists.c.track_id)
+            .join(TrackHit, Track.id == TrackHit.track_id)
+            .where(TrackHit.user_id == user_id)
+            .having(func.count(TrackHit.id) > 0)
+            .group_by(Artist.id)
+            .order_by(desc(func.count(TrackHit.id)))
+            .limit(6)
+            .options(
+                load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash)
+            )
+        )
+        result_6 = await self.db.execute(stmt)
+        top_artists = result_6.scalars().all()
+
+        # get 4 random artists
+        real_top_artists_num = len(top_artists) # handle the case that most played artists number is less than 6
+        result_4 = await self.db.execute(select(Artist).order_by(func.random()).limit(10 - real_top_artists_num))
+        random_artists = result_4.scalars().all()
+
+        return top_artists + random_artists
+    
+    async def get_favorited_artists(self) -> list[dict]:
+        '''get favorited artists'''
+        stmt = (
+            select(Artist)
+            .join(ArtistFav, Artist.id == ArtistFav.artist_id)
+            .where(ArtistFav.user_id == self.current_user_id)
+            .options(
+                load_only(Artist.id, Artist.name, Artist.face_art_hash, Artist.portrait_art_hash)
+            )
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
+    # endregion frontend use
