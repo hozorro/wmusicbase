@@ -9,18 +9,22 @@
 '''
 
 
+from typing import Optional
 import shutil, json, re, uuid, aiofiles, time
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import select
 from fastapi import Request, status
+from sqlalchemy.orm import load_only, selectinload
 from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
-from app.models import Track, User
+from app.models import Artist, Track, User, track_artists
 from app.utils.metadata import read_metadata
 from app.utils.pinyin import get_artist_sort_fields, get_initial_group
 from app.utils.audiofile import AudioMeta
+from tools import db_artist
+from tools.check_local_files import parse_filename
 
 class FileService:
     def __init__(self, settings: SettingsDep):
@@ -293,3 +297,120 @@ class StreamService:
                 msg='invalid credentials when check user as streaming',
                 status_code=status.HTTP_403_FORBIDDEN
             )
+
+# ======= check track files before upload to music library =======
+from dataclasses import dataclass
+from app.schemas.filething import MusicFile, MatchedTrack, UnmatchedFile
+
+class FileCheckService:
+    '''File check service'''
+    def __init__(self, db: DbDep, settings: SettingsDep):
+        self.db = db
+        self.settings = settings
+
+    def _parse_filename(self, file_name: str) -> Optional[MusicFile]:
+        '''
+        Parse file name, extract artist and title
+        format: Artist - Title.ext
+        multiple artists separated by ' & '
+        '''
+        file_path = Path(file_name)
+        suffix = file_path.suffix.lower()
+        if suffix not in self.settings.MUSIC_FILE_EXTENSIONS:
+            return None
+
+        stem = file_path.stem
+        if ' - ' not in stem:
+            return None
+        
+        parts = stem.split(' - ', 1)
+        if len(parts) != 2:
+            return None
+        
+        artist_part, title = parts
+
+        artists = [a.strip() for a in artist_part.split('&') if a.strip()]
+
+        if not artists or not title.strip():
+            return None
+        
+        return MusicFile(
+            file_name=file_name, 
+            stem=stem,
+            artists=artists, 
+            title=title.strip()
+        )
+
+    def parse_content(self, content: str) -> tuple[int, int, list[MusicFile]]:
+        '''
+        Parse file content, extract artist and title
+        return:
+        - total lines
+        - valid lines
+        - list of parsed lines to "artist - title"
+        '''
+        lines = content.splitlines()
+        parsed = []
+        for line in lines:
+            if self._parse_filename(line):
+                parsed.append(self._parse_filename(line))
+        return len(lines), len(parsed), parsed
+
+    async def _find_track_by_title_and_artists(self, title: str, artists: list[str]) -> Optional[tuple[Track, str]]:
+        '''
+        query db with title and artists
+        matched if title and any artist in artists matches the track's artists
+        return: (Track obj, matched artist) or None
+        '''
+        stmt = (
+            select(Track)
+            .join(track_artists, Track.id == track_artists.c.track_id)
+            .join(Artist, Artist.id == track_artists.c.artist_id)
+            .where(
+                Track.title == title,
+                Track.is_deleted == False,
+                Artist.name.in_(artists)
+            )
+            .options(
+                load_only(Track.id, Track.title, Track.path),
+                selectinload(Track.artists).load_only(Artist.name)
+            )
+        )
+
+        result = await self.db.execute(stmt)
+        tracks = result.scalars().all()
+
+        if not tracks:
+            return None
+
+        track = tracks[0]
+        track_artist_names = [a.name for a in track.artists]
+
+        matched_artist = None
+        for artist in artists:
+            if artist in track_artist_names:
+                matched_artist = artist
+                break
+        return (track, matched_artist or artists[0])
+
+    async def check_file_exist(self, files: list[MusicFile]) -> tuple[list[MatchedTrack], list[UnmatchedFile]]:
+        matched: list[MatchedTrack] = []
+        unmatched: list[UnmatchedFile] = []
+        for file in files:
+            result = await self._find_track_by_title_and_artists(file.title, file.artists)
+            if result:
+                track, matched_artist = result
+                matched.append(MatchedTrack(
+                    file=file, 
+                    db_track_id=track.id, 
+                    db_title=track.title, 
+                    db_path=track.path, 
+                    db_artists=[a.name for a in track.artists], 
+                    matched_artist=matched_artist
+                ))
+            else:
+                unmatched.append(UnmatchedFile(
+                    file=file, 
+                    reason='Track not found'
+                ))
+        return matched, unmatched

@@ -19,8 +19,10 @@ from app.utils.aidmatch import generate_fingerprint, match_fingerprint
 from app.schemas.common import ResponseModel, CountResponse
 from app.schemas.filething import (
     FileBase, SessionBase, SessionListResponse, FileInfoListResponse, UpdateVerionList, UpdateMetaTagsList,
-    CreateArchive, ArchiveResponse, CreateFingerprint, Fingerprint, MatchAcoustResponse, DeleteStagingFiles
+    CreateArchive, ArchiveResponse, CreateFingerprint, Fingerprint, MatchAcoustResponse, DeleteStagingFiles,
+    CheckTrackFileRequest, CheckTrackFileResponse
 )
+from app.services.file_service import FileCheckService
 from typing import Annotated
 
 router = APIRouter(dependencies=ADMIN_DEPS)
@@ -307,3 +309,15 @@ async def get_cover(release_id: str):
             'X-Cache-Status': 'HIT' if release_id in cover_cache else 'MISS'
         }
     )
+
+# ======= check track files before upload to music library =======
+@router.post('/checktrackfiles', response_model=ResponseModel[CheckTrackFileResponse])
+async def check_track_files(input: CheckTrackFileRequest, service: FileCheckService = Depends(FileCheckService)):
+    total, valid, parsed = service.parse_content(input.list_text)
+    result = await service.check_file_exist(parsed)
+    return ResponseModel(data=CheckTrackFileResponse(
+        total=total, 
+        valid=valid, 
+        matched=result[0], 
+        unmatched=result[1]
+    ))
