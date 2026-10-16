@@ -109,6 +109,28 @@ class PlaylistJsonInfo(BaseModel):
     time: str
     items: list[str]
 
+# ======= check music file before upload =======
+class MusicFile(BaseModel):
+    '''Music file'''
+    file_name: str  # File name
+    stem: str       # File name without extension
+    artists: list[str]
+    title: str
+
+class MatchedTrack(BaseModel):
+    '''matched track'''
+    file: MusicFile
+    db_track_id: int
+    db_title: str
+    db_path: str
+    db_artists: list[str]
+    matched_artist: str
+
+class UnmatchedFile(BaseModel):
+    '''unmatched file'''
+    file: MusicFile
+    reason: str
+
 # request
 class UpdateVersion(BaseModel):
     id: str
@@ -145,6 +167,9 @@ class CreateFingerprint(BaseModel):
 class ScanOptions(BaseModel):
     is_incremental: bool
 
+class CheckTrackFileRequest(BaseModel):
+    list_text: str
+
 # responses
 class FileInfoListResponse(RootModel):
     root: list[FileInfo]
@@ -167,3 +192,10 @@ class PlaylistBackupInfo(BaseModel):
 
 class PlaylistBackupResponse(RootModel):
     root: list[PlaylistBackupInfo]
+
+class CheckTrackFileResponse(BaseModel):
+    total: int
+    valid: int
+    matched: list[MatchedTrack]
+    unmatched: list[UnmatchedFile]
+    
