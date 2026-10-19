@@ -23,8 +23,6 @@ from app.models import Artist, Track, User, track_artists
 from app.utils.metadata import read_metadata
 from app.utils.pinyin import get_artist_sort_fields, get_initial_group
 from app.utils.audiofile import AudioMeta
-from tools import db_artist
-from tools.check_local_files import parse_filename
 
 class FileService:
     def __init__(self, settings: SettingsDep):
