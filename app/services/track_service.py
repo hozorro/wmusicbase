@@ -362,6 +362,48 @@ class TrackService:
             return await self._get_folder_tracks(collection_id)
         else:
             return []
+
+    @staticmethod
+    def _is_valid_lyric(text: str) -> bool:
+        '''
+        check if lyric content is valid
+        valid lyric should have timestamp lines like [00:00.00] or metadata tags like [ar:...]
+        invalid content includes error messages, empty lines, or non-lyric text
+        '''
+        if not text or not text.strip():
+            return False
+    
+        # common invalid patterns
+        invalid_patterns = [
+            r'^Lyrics not found\.?$',
+            r'^No lyrics available\.?$',
+            r'^暂无歌词$',
+            r'^未找到歌词$',
+            r'^error',
+            r'^failed',
+            r'^404',
+            r'^<!DOCTYPE',
+            r'^<html',
+            r'^{"error',
+        ]
+        
+        text_stripped = text.strip()
+        for pattern in invalid_patterns:
+            if re.search(pattern, text_stripped, re.IGNORECASE):
+                return False
+        
+        # valid lyric should have at least one timestamp line [mm:ss.xx]
+        timestamp_pattern = r'\[\d{2}:\d{2}\.\d{2,3}\]'
+        if re.search(timestamp_pattern, text):
+            return True
+        
+        # or have metadata tags like [ar:Artist], [ti:Title], etc.
+        metadata_pattern = r'\[(ar|ti|al|by|offset|version):[^\]]+\]'
+        if re.search(metadata_pattern, text, re.IGNORECASE):
+            return True
+    
+        # no timestamp and no metadata, likely invalid
+        return False
         
     async def get_lyric(self, track_id: int) -> str | None:
         result = await self.db.execute(
@@ -396,7 +438,7 @@ class TrackService:
                 )
                 text = res.text
                 # save the lyric file to the track directory with the same name as the track
-                if text:
+                if text and self._is_valid_lyric(text):
                     async with aiofiles.open(lyric_path, mode='w', encoding='utf-8') as f:
                         await f.write(text)
                     return text
