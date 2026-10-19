@@ -12,8 +12,11 @@
 
 import json
 import re
+import time
 import httpx
 from urllib.parse import urlparse, parse_qs
+from PIL import Image
+from io import BytesIO
 from sqlalchemy import select, or_, func
 from sqlalchemy.orm import selectinload, joinedload, load_only
 from app.core.deps import SettingsDep, DbDep
@@ -21,7 +24,6 @@ from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, Artist, Album, Playlist
 from app.schemas.netease import (
-    NeteaseTrackInfo,
     NeteasePlaylistResponse,
     NeteaseMatchTrackItem,
     NeteaseMatchCandidate,
@@ -33,6 +35,7 @@ from app.services.artwork_service import ArtworkService
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/2.10.2.200154'
 REFERER = 'https://music.163.com/'
+SEARCH_API = 'https://music.163.com/api/cloudsearch/pc'
 DEFAULT_COOKIES = {
     "os": "pc",
     "appver": "",
@@ -52,7 +55,16 @@ class NeteaseService:
         self.db = db
         self.settings = settings
 
-        self.cookies = load_cookies(self.settings.NETEASE_COOKIES_FILE)
+        cookies = DEFAULT_COOKIES.copy()
+        self.cookies = cookies.update(load_cookies(self.settings.NETEASE_COOKIES_FILE))
+    
+    @staticmethod
+    def _headers():
+        return {
+            'User-Agent': USER_AGENT,
+            'Referer': REFERER,
+            'Accept': '*/*',
+        }
     
     @staticmethod
     async def extract_playlist_id(share_text: str) -> str | None:
@@ -124,17 +136,15 @@ class NeteaseService:
             BusinessException: when api request fails or playlist not found
         '''
         # url = f'{self.api_base}?id={playlist_id}'
-        headers = {
-            'User-Agent': USER_AGENT,
-            'Referer': REFERER,
-            'Accept': '*/*',
-        }
-        request_cookies = DEFAULT_COOKIES.copy()
-        request_cookies.update(self.cookies)
-        
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(self.settings.NETEASE_PLAYLIST_API, data={'id': playlist_id}, headers=headers, cookies=request_cookies, timeout=30)
+                response = await client.post(
+                    self.settings.NETEASE_PLAYLIST_API, 
+                    data={'id': playlist_id}, 
+                    headers=NeteaseService._headers(), 
+                    cookies=self.cookies, 
+                    timeout=30
+                )
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as e:
@@ -184,7 +194,12 @@ class NeteaseService:
                 for i in range(0, len(track_ids), 100):
                     batch_ids = track_ids[i:i+100]
                     song_data = {'c': json.dumps([{'id': int(sid), 'v': 0} for sid in batch_ids])}
-                    song_resp = await client.post(self.settings.NETEASE_SONG_API, data=song_data, headers=headers, cookies=request_cookies, timeout=30)
+                    song_resp = await client.post(
+                        self.settings.NETEASE_SONG_API, 
+                        data=song_data, 
+                        headers=NeteaseService._headers(), 
+                        cookies=self.cookies
+                    )
                     song_resp.raise_for_status()
                     song_result = song_resp.json()
                     for song in song_result.get('songs', []):
@@ -426,3 +441,273 @@ class NeteaseService:
             return None
 
         return None
+
+    # =========== lyric ===========
+    async def search_song(self, keyword: str, page: int = 0, limit: int = 10) -> list[dict]:
+        '''search song, return list of song info'''
+        search_url = 'https://music.163.com/api/search/get/web?&s={}&type=1&offset={}&total=true&limit={}'
+        keyword = re.sub(r'|[!@#$%^&*/]+', '', keyword)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res_json = (await client.post(
+                    search_url.format(keyword, page, limit),
+                    headers=NeteaseService._headers(),
+                    cookies=self.cookies
+                )).json()
+
+            res_list = []
+            if res_json["result"] == {} or res_json["code"] == 400 or res_json["result"]["songCount"] == 0:
+                return res_list
+            for data in res_json["result"]["songs"]:
+                duration = data["duration"] // 1000
+                artists_list = [info["name"] for info in data["artists"]]
+                album_name = data.get('album', {}).get('name', '') if data.get('album') else ''
+                res_list.append({
+                    "idOrMd5": str(data["id"]),
+                    "songName": data["name"],
+                    "singer": ','.join(artists_list),
+                    "album": album_name,
+                    "duration": f'{duration // 60}:{duration % 60:02d}',
+                })
+            return res_list
+        except Exception as e:
+            logger.error(f'Failed to search song: {e}')
+            return []
+
+    @staticmethod
+    def _merge_lyric_with_translation(lyric_text: str, tlyric_text: str) -> str:
+        '''merge lyric with translation'''
+        def parse_lyric_lines(text: str) -> tuple:
+            lyric_dict = {}
+            no_timestamp_lines = []
+            timestamp_pattern = re.compile(r'\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)')
+            for line in text.strip().split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                match = timestamp_pattern.match(line)
+                if match:
+                    minutes = int(match.group(1))
+                    seconds = int(match.group(2))
+                    ms = int(match.group(3).ljust(3, '0')[:3])
+                    timestamp = minutes * 60000 + seconds * 1000 + ms
+                    lyric_content = match.group(4).strip()
+                    if timestamp not in lyric_dict:
+                        lyric_dict[timestamp] = {'original': '', 'translation': ''}
+                    lyric_dict[timestamp]['original'] = lyric_content
+                else:
+                    no_timestamp_lines.append(line)
+            return lyric_dict, no_timestamp_lines
+
+        def format_timestamp(ms: int) -> str:
+            return f'[{ms // 60000:02d}:{(ms % 60000) // 1000:02d}.{ms % 1000:03d}]'
+
+        lyric_dict, lyric_no_timestamp_lines = parse_lyric_lines(lyric_text)
+        tlyric_dict, _ = parse_lyric_lines(tlyric_text)
+
+        for timestamp, content in tlyric_dict.items():
+            if timestamp in lyric_dict and content['original']:
+                lyric_dict[timestamp]['translation'] = content['original']
+
+        result_lines = lyric_no_timestamp_lines[:]
+        for timestamp in sorted(lyric_dict.keys()):
+            content = lyric_dict[timestamp]
+            if content['original']:
+                result_lines.append(f"{format_timestamp(timestamp)} {content['original']}")
+            if content['translation']:
+                result_lines.append(f"{format_timestamp(timestamp)} {content['translation']}")
+        
+        return '\n'.join(result_lines)
+
+    async def get_lyrics_by_song_id(self, song_id: str) -> str:
+        '''
+        get lyrics by song id
+        Args:
+            song_id: song id
+        Returns:
+            lyrics text
+        '''
+        lyrics_url = 'https://music.163.com/api/song/lyric?id={}&os=pc&lv=-1&kv=-1&tv=-1&rv=-1&yv=-1'
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res_json = (await client.get(
+                    lyrics_url.format(song_id),
+                    headers=NeteaseService._headers(),
+                    cookies=self.cookies
+                )).json()
+            lyric_text = res_json.get('lrc', {}).get('lyric', '')
+            tlyric_text = res_json.get('tlyric', {}).get('lyric', '')
+            if lyric_text:
+                return self._merge_lyric_with_translation(lyric_text, tlyric_text)
+            return ''
+        except Exception as e:
+            logger.warning(f'Failed to get lyrics: {e}')
+            return ''
+
+    # =========== artist avatar =============
+    async def search_artist(self, keyword: str, limit: int = 10) -> list[dict]:
+        '''
+        search artist by keyword
+        Args:
+            keyword: search keyword
+            limit: max number of results to return
+        Returns:
+            list of artist info
+        '''
+        try:
+            data = {'s': keyword, 'type': 100, 'limit': limit}
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    SEARCH_API,
+                    data=data,
+                    headers=NeteaseService._headers(),
+                    cookies=self.cookies
+                )
+                response.raise_for_status()
+                result = response.json()
+                if result.get('code') != 200:
+                    logger.warning(f'Failed to search artist: {result.get("msg")}')
+                    return []
+                results = []
+                for item in result.get('result', {}).get('artists', []):
+                    results.append({
+                        'id': item['id'],
+                        'name': item['name'],
+                        'picUrl': item.get('picUrl', '') or item.get('img1v1Url', ''),
+                    })
+                return results
+        except Exception as e:
+            logger.error(f'Failed to search artist: {e}')
+            return []
+
+    async def get_artist_avatar_url(self, artist_name: str) -> str | None:
+        '''
+        get artist avatar url by artist name
+        Args:
+            artist_name: artist name
+        Returns:
+            artist avatar url or None if failed
+        '''
+        try:
+            search_results = await self.search_artist(artist_name, limit=1)
+            if search_results:
+                pic_url = search_results[0].get('picUrl', '')
+                if pic_url:
+                    pic_url = pic_url.replace('http://', 'https://')
+                    if '?' not in pic_url:
+                        pic_url += '?param=300y300'
+                    return pic_url
+            return None
+        except Exception as e:
+            logger.error(f'Failed to get artist avatar url: {e}')
+            return None
+
+    async def download_artist_avatar(self, artist_name: str) -> bytes | None:
+        '''
+        download artist avatar by artist id
+        Args:
+            artist_id: artist id
+        Returns:
+            bytes of artist avatar or None if failed
+        '''
+        pic_url = self.get_artist_avatar_url(artist_name)
+        if not pic_url:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(pic_url, headers=NeteaseService._headers(), cookies=self.cookies)
+                response.raise_for_status()
+                return response.content
+        except Exception as e:
+            logger.error(f'Failed to download artist avatar: {e}')
+            return None
+
+    # =========== song info ===========
+    async def get_song_info(self, song_id: str) -> dict | None:
+        '''
+        get song info by song id
+
+        When Netease triggers risk control or encounters special tracks (removed from stores/radio/cloud storage, etc.), 
+        it may return a response without the "songs" field. 
+        Here we perform defensive parsing and provide clear error messages 
+        to prevent higher-level systems from receiving a bare "KeyError: 'songs'", 
+        while also retrying once to account for occasional risk control issues. 
+        If the song truly doesn't exist, return None so that higher-level systems can skip that candidate.
+        '''
+        song_info_url = 'https://music.163.com/api/song/detail/?id={}&ids=[{}]'
+
+        songs = None
+        last_desc = ''
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    res_json = (await client.post(
+                        song_info_url.format(song_id, song_id),
+                        headers=NeteaseService._headers(),
+                        cookies=self.cookies
+                    )).json()
+            except ValueError as exc:
+                last_desc = f'Response is not valid JSON: {exc}'
+                time.sleep(0.5)
+                continue
+
+            code = res_json.get('code')
+            songs = res_json.get('songs')
+            if songs:
+                break
+            if songs == []:
+                return None
+            
+            last_desc = res_json.get('msg') or f'code={code}, keys={list(res_json.keys())}'
+            if attempt == 0:
+                time.sleep(0.6)
+        
+        if not songs:
+            raise BusinessException(
+                code=30525,
+                msg=f'Failed to get song info: {last_desc}',
+                status_code=502
+            )
+
+        song_json = songs[0]
+        album = song_json.get('album', {})
+        artist_list = [info['name'] for info in song_json.get('artists', [])]
+        duration = song_json.get('duration', 0) // 1000
+
+        pic_buffer = None
+        pic_url = album.get('picUrl')
+        if pic_url:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    pic_response = await client.get(pic_url, headers=NeteaseService._headers(), cookies=self.cookies)
+                    pic_response.raise_for_status()
+                    with Image.open(BytesIO(pic_response.content)) as img:
+                        if img.mode != 'RGB':
+                            img = img.convert('RGB')
+                        img.thumbnail((512, 512))
+                        pic_buffer = BytesIO()
+                        img.save(pic_buffer, format='JPEG', quality=85)
+                        pic_buffer.seek(0)
+            except Exception as e:
+                logger.warning(f'Failed to download song cover: {e}')
+                pic_buffer = None
+
+        lyric = await self.get_lyrics_by_song_id(song_id)
+        publish_time = album.get('publishTime')
+        year = (
+            str(time.localtime(publish_time // 1000).tm_year)
+            if publish_time else ''
+        )
+
+        return {
+            'songName': song_json.get('name', ''),
+            'singer': ','.join(artist_list),
+            'album': album.get('name', ''),
+            'duration': f'{duration // 60}:{duration % 60:02d}',
+            'year': year,
+            'trackNumber': (song_json.get('no'), album.get('size')),
+            'lyric': lyric,
+            'cover': pic_buffer,
+        }
+                
