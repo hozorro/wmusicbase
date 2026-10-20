@@ -206,68 +206,11 @@ class AudioMeta:
 
         self.init_version()
         
-    def update_meta_version(self, use_apev2=False, del_id3v1=True, del_apev2=False) -> None:
-        '''
-        [Deprecated]
-        handle meta data
-        if the version is ID3v1, fix the encoding and upgrade to ID3v2.4
-        if APEv2 exists, use APEv2 data to replace ID3 tags (only replace title, artist, album, year, genre fields)
-        del_id3v1: whether to delete ID3v1 tag
-        del_apev2: whether to delete APEv2 tag
-        '''
-        tag = MutagenFile(self.file_path, easy=True)
-        tag_decoded = decode_object(dict(tag.tags), self.meta_encoding)
-        for k, v in tag_decoded.items():
-            tag[k] = v
-        if use_apev2:
-            keys = tag_decoded.keys()
-            for k, v in self.apev2_data.items():
-                if k == 'artists' and v != []:
-                    tag['artist'] = v
-                elif k == 'genres' and v != []:
-                    tag['genre'] = v
-                elif k in keys and v is not None:
-                    tag[k] = v
-
-        tag.save(self.file_path, v1=0 if del_id3v1 else 1)
-        if del_apev2:
-            try:
-                tag = APEv2(self.file_path)
-                tag.delete()
-                tag.save()
-            except:
-                pass
-        self.init_version()
-
     def update_metadata(self, meta: dict, del_id3v1=True, del_apev2=False) -> None:
         write_metadata(self.file_path, meta)
         if del_id3v1:
             tag = MutagenFile(self.file_path, easy=True)
             tag.save(self.file_path, v1=0)
-        if del_apev2:
-            try:
-                tag = APEv2(self.file_path)
-                tag.delete()
-                tag.save()
-            except:
-                pass
-        self.init_version()
-
-    def update_meta_data(self, meta: dict, del_id3v1=True, del_apev2=False) -> None:
-        '''
-        [Deprecated]
-        update metadata
-        '''
-        tag = MutagenFile(self.file_path, easy=True)
-        for key in meta.keys():
-            if key == 'year':
-                tag['date'] = str(meta[key])
-            elif key in _KEY_MAP.keys(): 
-                tag[_KEY_MAP[key]] = meta[key]
-            else:
-                tag[key] = meta[key]
-
-        tag.save(self.file_path, v1=0 if del_id3v1 else 1)
         if del_apev2:
             try:
                 tag = APEv2(self.file_path)
