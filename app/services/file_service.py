@@ -297,7 +297,6 @@ class StreamService:
             )
 
 # ======= check track files before upload to music library =======
-from dataclasses import dataclass
 from app.schemas.filething import MusicFile, MatchedTrack, UnmatchedFile
 
 class FileCheckService:

@@ -15,6 +15,11 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, TIT2, TALB, TPE1, TPE2, TDRC, TCON, TXXX, UFID, APIC
 from mutagen.flac import FLAC, Picture
 from .common import parse_year
+from .encoding import (
+    detect_shared_encoding,
+    recover_legacy_text,
+    to_bytes
+)
 from typing import Any
 
 BITRATE_MODES= {
@@ -45,7 +50,72 @@ def compute_file_hash(file_path: str | Path) -> str:
     raw = f'{str(file_path)}{size}{mtime}'.encode('utf-8')
     return hashlib.sha256(raw).hexdigest(), size, mtime
 
-def decode_tag_value(raw_value: Any, encoding: int) -> str:
+def decode_tag_value(raw_value: Any, encoding: int, reference: str | None = None, forced: str | None = None) -> str:
+    '''
+    decode raw tag text to a utf-8 str.
+
+    ``encoding`` is the ID3 text-encoding byte.  1/2/3 are self-describing
+    (UTF-16 / UTF-16BE / UTF-8) and mutagen has already decoded them, so we
+    simply accept its work.
+
+    ``encoding == 0`` means "declared ISO-8859-1", and that claim cannot be
+    trusted: ID3v1 has no encoding byte at all, and legacy taggers labelled
+    GB18030 / Big5 / Shift-JIS frames as latin1 far more often than not.  Those
+    bytes go to :func:`encoding.recover_legacy_text`, which scores the
+    candidate codecs instead of assuming GB18030 the way this used to.
+
+    ``reference`` lets the caller pass in a trustworthy sibling value for the
+    same field (the APEv2 reading, typically) to turn a guess into a match.
+    ``forced`` reuses a codec already chosen for the whole file.
+    '''
+    # Non-zero encodings are unambiguous; mutagen already decoded them.
+    if encoding != 0:
+        if isinstance(raw_value, str):
+            return raw_value.strip('\x00').strip()
+        codec = {1: 'utf-16', 2: 'utf-16-be', 3: 'utf-8'}.get(encoding)
+        if codec is None:
+            return str(raw_value).strip()
+        try:
+            return bytes(raw_value).decode(codec, errors='ignore').strip('\x00').strip()
+        except Exception:
+            return str(raw_value).strip()
+    recovered = recover_legacy_text(raw_value, reference=reference, forced=forced)
+    return recovered.text.strip('\x00').strip()
+
+# APEv2 key -> target field.  APEv2 carries UTF-8 and never lies about its
+# encoding, which makes it the best available ground truth for the same file.
+_APEV2_REF_MAP = {
+    'Title': 'title',
+    'Album': 'album',
+    'Year': 'year',
+    'Genre': 'genres',
+    'Artist': 'artists',
+}
+
+# Fields we are willing to take from APEv2 when the ID3 side is only a lossy
+# 30-byte ID3v1 tag.
+_APEV2_FILLABLE = ('title', 'album', 'artists', 'genres')
+
+def read_apev2_tags(file_path: str | Path) -> dict[str, list[str]]:
+    '''read APEv2 values as plain str lists; empty dict when there is no APEv2 tag.'''
+    try:
+        tags = APEv2(file_path)
+    except Exception:
+        return {}
+
+    out: dict[str, list[str]] = {}
+    for ape_key, target_field in _APEV2_REF_MAP.items():
+        try:
+            value = tags[ape_key]
+        except Exception:
+            continue
+        items = value if isinstance(value, (list, tuple)) else [value]
+        cleaned = [str(i).strip() for i in items if str(i).strip()]
+        if cleaned:
+            out[target_field] = cleaned
+    return out
+
+def decode_tag_value_deprecated(raw_value: Any, encoding: int) -> str:
     '''decode raw tag text to utf-8 str, according to encoding'''
     decoded_str = ''
     try:
@@ -68,7 +138,15 @@ def decode_tag_value(raw_value: Any, encoding: int) -> str:
     # strip and transform to utf-8 finally
     return decoded_str.strip().encode('utf-8', errors='ignore').decode('utf-8')
 
-def parse_metadata(file_path: str | Path) -> dict[str, Any]:
+def parse_metadata(file_path: str | Path, prefer_apev2: bool = True) -> dict[str, Any]:
+    '''
+    Read ID3 tags into the canonical result dict.
+
+    prefer_apev2
+        When the ID3 side is only a lossy ID3v1 tag and the file also carries
+        an APEv2 tag, prefer the APEv2 text for title/album/artists/genres.
+        Files with a genuine ID3v2 tag are never touched.
+    '''
     # initial result
     result = {
         'title': '',
@@ -97,9 +175,31 @@ def parse_metadata(file_path: str | Path) -> dict[str, Any]:
             result['bitrate_mode'] = BITRATE_MODES.get(getattr(audio.info, 'bitrate_mode', '').__str__(), '')
         # 2. extract raw ID3 tags, including text and encoding
         id3_tags = ID3(file_path)
-    except Exception:
-        raise Exception(f"Failed to parse metadata for {file_path}")
+    except Exception as e:
+        raise Exception(f"Failed to parse metadata for {file_path}") from e
 
+    # mutagen reports version (1, x) when it had to synthesise the frames from
+    # an ID3v1 tag, i.e. the file carries no real ID3v2 header.  ID3v1 fields
+    # are capped at 30 bytes and carry no encoding byte, so whenever something
+    # better is around we should let it win.
+    id3_from_v1 = bool(id3_tags.version) and id3_tags.version[0] == 1
+    apev2_tags = read_apev2_tags(file_path)
+
+    # Decide the legacy codec ONCE for the whole file.  A single 3-character
+    # field is weak evidence; every non-ASCII frame agreeing is much stronger.
+    # This is what keeps one file from coming out half Big5 and half GB18030.
+    # Frames declaring encoding != 0 already know their codec and are skipped.
+    latin1_raws: list[bytes] = []
+    for _name in tag_mapping:
+        if _name not in id3_tags:
+            continue
+        _frame = id3_tags.get(_name)
+        if getattr(_frame, 'encoding', None) != 0:
+            continue
+        for _v in getattr(_frame, 'text', None) or []:
+            latin1_raws.append(to_bytes(_v))
+    file_codec = detect_shared_encoding(latin1_raws)
+    
     # list type fields
     LIST_TYPE_FIELDS = ['artists', 'albumartist', 'genres', 'mb_artistids', 'mb_albumartistid']
     
@@ -114,23 +214,50 @@ def parse_metadata(file_path: str | Path) -> dict[str, Any]:
             raw_text_list = getattr(tag_obj, 'text', []) # raw data is always a list
             if not raw_text_list:
                 continue
-
+            
+            # A trustworthy sibling value from APEv2 turns the codec guess into
+            # a verification: pick whichever reading matches it.
+            apev2_value = apev2_tags.get(target_field, [])
+            reference = apev2_value[0] if apev2_value else None
+            
             if target_field in LIST_TYPE_FIELDS:
                 decoded_list: list[str] = []
                 for single_raw_val in raw_text_list:
-                    decoded_val = decode_tag_value(single_raw_val, tag_obj.encoding)
+                    decoded_val = decode_tag_value(
+                        single_raw_val, tag_obj.encoding, 
+                        reference=reference,
+                        forced=file_codec if tag_obj.encoding == 0 else None
+                    )
                     if decoded_val:
                         decoded_list.append(decoded_val)
                 result[target_field] = list(set(decoded_list))  # remove duplicate values
             else:
                 first_raw_val = raw_text_list[0]
-                decoded_text = decode_tag_value(first_raw_val, tag_obj.encoding)
+                decoded_text = decode_tag_value(
+                    first_raw_val, tag_obj.encoding,
+                    reference=reference,
+                    forced=file_codec if tag_obj.encoding == 0 else None
+                )
                 if target_field == 'year': 
                     # date tag in ID3 tag is various format, so we need to parse it to only reserve year and transform to int
                     result[target_field] = parse_year(decoded_text)
                 else:
                     result[target_field] = decoded_text
 
+    # ID3v1 truncates every field at 30 bytes and cannot express anything
+    # outside ISO-8859-1, so a v1-derived title is at best a prefix of the real
+    # one.  When the same file also carries APEv2, take the authoritative UTF-8
+    # value rather than shipping a truncated guess to the caller.
+    if prefer_apev2 and id3_from_v1 and apev2_tags:
+        for _field in _APEV2_FILLABLE:
+            if _field not in apev2_tags:
+                continue
+            _values = apev2_tags[_field]
+            # str fields take the first value; list fields take the deduped set
+            result[_field] = _values[0] if isinstance(result[_field], str) else list(set(_values))
+        if 'year' in apev2_tags and not result['year']:
+            result['year'] = parse_year(apev2_tags['year'][0])
+    
     # padding fields
     if len(result['mb_artistids']) < len(result['artists']):
         result['mb_artistids'].extend([None] * (len(result['artists']) - len(result['mb_artistids'])))
