@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, UploadFile, Form, File, status
 from pydantic import BaseModel
 from app.schemas.common import ArtistWithCreated, ResponseModel, SuccessMsgModel, CountResponse, ArtistBase
 from app.schemas.filething import UpdateMetaTagList
-from app.schemas.artist import ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate, OrphanArtistResponse, OrphanArtistCleanupRequest, OrphanArtistCleanupResponse
+from app.schemas.artist import ArtistResponse, ArtistArtCreate, artist_art_upload_from_form, ArtistArtUpdate, OrphanArtistResponse, OrphanArtistCleanupRequest, OrphanArtistCleanupResponse, ArtistArtFetchRequest, ArtistArtFetchResponse, ArtistArtConfirmRequest
 from app.schemas.album import AlbumResponse, AlbumArtCreate, album_art_upload_from_form
 from app.core.exceptions import BusinessException
 from app.core.deps import ADMIN_DEPS
@@ -270,6 +270,34 @@ async def set_artist_art(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     return ResponseModel(data='ok')
+
+
+# ============ Artist Art Fetch from Third-party Search APIs ============
+
+@router.post('/fetchartistart', response_model=ResponseModel[ArtistArtFetchResponse], tags=['edit'])
+async def fetch_artist_art(
+    data: ArtistArtFetchRequest,
+    service: ArtworkService = Depends(ArtworkService)
+):
+    '''fetch artist face and portrait from third-party search API'''
+    result = await service.fetch_artist_art_from_search(data.artist_name)
+    return ResponseModel(data=ArtistArtFetchResponse(**result))
+
+
+@router.post('/confirmartistart', response_model=ResponseModel[dict], tags=['edit'])
+async def confirm_artist_art(
+    data: ArtistArtConfirmRequest,
+    service: ArtworkService = Depends(ArtworkService)
+):
+    '''confirm and save temp artwork as official artist art'''
+    if data.art_type not in ('face', 'portrait'):
+        raise BusinessException(
+            code=60107,
+            msg='art_type must be face or portrait',
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
+    filename = await service.confirm_artist_art(data.artist_id, data.art_type, data.temp_id, data.set_directly)
+    return ResponseModel(data={'filename': filename})
 
 
 # ============ Orphan Artist Management APIs ============

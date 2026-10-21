@@ -53,3 +53,24 @@ class OrphanArtistCleanupResponse(BaseModel):
     deleted_count: int
     deleted_artists: list[ArtistPrimary]
     failed_ids: list[int] = []
+
+
+# ============ Artist Art Fetch from Third-party Search ============
+
+class ArtistArtFetchRequest(BaseModel):
+    '''fetch artist art from third-party search request'''
+    artist_name: str = Field(..., min_length=1, description='Artist name to search')
+
+class ArtistArtFetchResponse(BaseModel):
+    '''fetch artist art response'''
+    face_temp_id: str | None = Field(None, description='Temp ID for face image')
+    portrait_temp_id: str | None = Field(None, description='Temp ID for portrait image')
+    face_url: str | None = Field(None, description='Face image URL for preview')
+    portrait_url: str | None = Field(None, description='Portrait image URL for preview')
+
+class ArtistArtConfirmRequest(BaseModel):
+    '''confirm artist art request'''
+    artist_id: int = Field(..., description='Artist ID')
+    art_type: str = Field(..., description='Art type: face or portrait')
+    temp_id: str = Field(..., description='Temp ID from fetch response')
+    set_directly: bool = Field(False, description='When True, immediately promote the saved image to the artist current artwork (position _1)')
