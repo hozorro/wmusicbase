@@ -9,7 +9,7 @@
 '''
 
 
-import re, aiofiles, hashlib, shutil, time
+import re, aiofiles, hashlib, shutil, time, uuid, httpx, asyncio, requests
 from pathlib import Path
 from enum import Enum
 from fastapi import UploadFile
@@ -758,3 +758,287 @@ class ArtworkService:
         except Exception as e: 
             logger.error(f'Failed to set default {art_type} artwork.')
             raise e
+
+    # ============ Artist Art Fetch from Third-party Search ============
+
+    async def fetch_artist_art_from_search(self, artist_name: str) -> dict:
+        '''
+        search artist by name using third-party API, download face and portrait images,
+        save to TMP_ARTWORK_DIR with temp_id, return temp_ids and preview URLs
+        Args:
+            artist_name: artist name to search
+        Returns:
+            dict with face_temp_id, portrait_temp_id, face_url, portrait_url
+        Raises:
+            BusinessException: when search fails or artist not found
+        '''
+        # cleanup expired temp files first
+        self._cleanup_expired_tmp_artwork()
+
+        search_url = f'{self.settings.THIRD_PARTY_SEARCH_BASE_URL}{self.settings.THIRD_PARTY_SEARCH_API}'
+        params = {
+            'keywords': artist_name,
+            'type': 100,
+            'limit': 1
+        }
+        # The third-party netease API server(may be Node.js/Express) may be incompatible with httpx default behavior (returns 502),
+        # so we use requests (sync) + asyncio.to_thread wrapper to avoid blocking the event loop
+        # Verified differences: httpx sends host / accept-encoding:gzip,deflate / connection:keep-alive additionally
+        # Also, convert all header names to lowercase; requests should remain in their original casing and not include accept-encoding/connect
+        # The most likely trigger is connection:keep-alive (upstream proxy processing persistent connection exception)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 '
+                          '(KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/2.10.2.200154',
+            'Referer': 'https://music.163.com/',
+            'Accept': '*/*',
+        }
+
+        def _sync_search():
+            return requests.get(search_url, params=params, headers=headers, timeout=30)
+
+        try:
+            response = await asyncio.to_thread(_sync_search)
+            response.raise_for_status()
+            res = response.json()
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else 'unknown'
+            logger.error(f'Third-party search API HTTP error: {status_code}')
+            raise BusinessException(
+                code=60120,
+                msg=f'third-party search api request failed: {status_code}',
+                status_code=502
+            )
+        except requests.RequestException as e:
+            logger.error(f'Third-party search API request error: {e}')
+            raise BusinessException(
+                code=60121,
+                msg='third-party search api request failed: network error',
+                status_code=502
+            )
+        except Exception as e:
+            logger.error(f'Third-party search API unexpected error: {e}')
+            raise BusinessException(
+                code=60122,
+                msg='third-party search api request failed: unknown error',
+                status_code=502
+            )
+
+        result = res.get('result', {})
+        artists = result.get('artists', [])
+        if not artists:
+            raise BusinessException(
+                code=60123,
+                msg=f'artist not found: {artist_name}',
+                status_code=404
+            )
+
+        artist_data = artists[0]
+        face_url = artist_data.get('img1v1Url', '')
+        portrait_url = artist_data.get('picUrl', '')
+
+        face_temp_id = None
+        portrait_temp_id = None
+
+        # download face image (512x512)
+        if face_url:
+            face_temp_id = await self._download_and_cache_tmp_image(face_url, '512y512')
+            if not face_temp_id:
+                logger.warning(f'Failed to download face image for artist: {artist_name}')
+
+        # download portrait image (1024x512)
+        if portrait_url:
+            portrait_temp_id = await self._download_and_cache_tmp_image(portrait_url, '1024y512')
+            if not portrait_temp_id:
+                logger.warning(f'Failed to download portrait image for artist: {artist_name}')
+
+        if not face_temp_id and not portrait_temp_id:
+            raise BusinessException(
+                code=60124,
+                msg='failed to download artist images',
+                status_code=500
+            )
+
+        return {
+            'face_temp_id': face_temp_id,
+            'portrait_temp_id': portrait_temp_id,
+            'face_url': f'/api/v1/artwork/tmp/artist/{face_temp_id}' if face_temp_id else None,
+            'portrait_url': f'/api/v1/artwork/tmp/artist/{portrait_temp_id}' if portrait_temp_id else None,
+        }
+
+    async def _download_and_cache_tmp_image(self, url: str, size_param: str) -> str | None:
+        '''
+        download image from url with size parameter and save to TMP_ARTWORK_DIR
+        Args:
+            url: image url
+            size_param: size parameter like '512y512' or '1024y512'
+        Returns:
+            temp_id if successful, None otherwise
+        '''
+        # add size parameter to url
+        separator = '&' if '?' in url else '?'
+        full_url = f'{url}{separator}param={size_param}'
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 '
+                          '(KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/2.10.2.200154',
+            'Referer': 'https://music.163.com/',
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+                response = await client.get(full_url)
+                response.raise_for_status()
+                content = response.content
+
+            # validate content type
+            content_type = response.headers.get('content-type', '')
+            if not content_type.startswith('image/'):
+                logger.warning(f'Invalid content type for image: {content_type}')
+                return None
+
+            # generate temp_id and save to TMP_ARTWORK_DIR
+            temp_id = str(uuid.uuid4())
+            temp_path = self.settings.TMP_ARTWORK_DIR / f'{temp_id}.jpg'
+
+            # resize and save as jpeg
+            img_data = resize_image(content, max_width=1024)
+            async with aiofiles.open(temp_path, 'wb') as f:
+                await f.write(img_data)
+
+            logger.info(f'Saved temp artwork: {temp_path}')
+            return temp_id
+
+        except Exception as e:
+            logger.error(f'Failed to download image from {full_url}: {e}')
+            return None
+
+    async def confirm_artist_art(self, artist_id: int, art_type: str, temp_id: str, set_directly: bool = False) -> str:
+        '''
+        confirm and save temp artwork as official artist art candidate
+        reuses upload_artist_art_candidate logic to find lowest available number
+        Args:
+            artist_id: artist id
+            art_type: 'face' or 'portrait'
+            temp_id: temp id from fetch response
+            set_directly: when True, immediately promote the saved candidate to
+                          position _1 (current artwork) using the same rules as
+                          set_artist_art_from_candidate; the corresponding
+                          *_art_hash will also be updated
+        Returns:
+            saved filename (position _1 filename when set_directly=True)
+        Raises:
+            BusinessException: when temp file not found, expired, or save fails
+        '''
+        # validate art_type
+        if art_type not in ('face', 'portrait'):
+            raise BusinessException(
+                code=60107,
+                msg='art_type must be face or portrait',
+                status_code=400
+            )
+
+        # validate temp_id (prevent path traversal)
+        if '..' in temp_id or '/' in temp_id or '\\' in temp_id:
+            raise BusinessException(
+                code=60124,
+                msg='invalid temp_id',
+                status_code=400
+            )
+
+        # check if temp file exists
+        temp_path = self.settings.TMP_ARTWORK_DIR / f'{temp_id}.jpg'
+        if not temp_path.exists():
+            raise BusinessException(
+                code=60125,
+                msg='temp artwork not found or expired',
+                status_code=404
+            )
+
+        # check if temp file is expired
+        file_mtime = temp_path.stat().st_mtime
+        if time.time() - file_mtime > self.settings.TMP_ARTWORK_CACHE_EXPIRE:
+            # delete expired file
+            temp_path.unlink()
+            raise BusinessException(
+                code=60126,
+                msg='temp artwork expired',
+                status_code=404
+            )
+
+        # read temp file content
+        async with aiofiles.open(temp_path, 'rb') as f:
+            content = await f.read()
+
+        # save to artist directory using existing logic
+        try:
+            filename = await self.upload_artist_art_candidate(artist_id, art_type, content)
+        except ValueError as e:
+            raise BusinessException(
+                code=60109,
+                msg=f'failed to save artist art: {e}',
+                status_code=500
+            )
+
+        # optionally promote the saved candidate to position _1 (current artwork)
+        if set_directly:
+            try:
+                await self.set_artist_art_from_candidate(artist_id, art_type, filename)
+                # after swap, the selected image now lives at position _1
+                filename = f'{art_type}_1.jpg'
+            except ValueError as e:
+                raise BusinessException(
+                    code=60110,
+                    msg=f'failed to set artist art from candidate: {e}',
+                    status_code=500
+                )
+
+        # delete temp file after successful save
+        try:
+            temp_path.unlink()
+            logger.info(f'Deleted temp artwork after confirm: {temp_path}')
+        except Exception as e:
+            logger.warning(f'Failed to delete temp artwork {temp_path}: {e}')
+
+        return filename
+
+    def _cleanup_expired_tmp_artwork(self):
+        '''cleanup expired temp artwork files (older than TMP_ARTWORK_CACHE_EXPIRE seconds)'''
+        try:
+            expire_seconds = self.settings.TMP_ARTWORK_CACHE_EXPIRE
+            current_time = time.time()
+            for entry in self.settings.TMP_ARTWORK_DIR.iterdir():
+                if entry.is_file() and entry.suffix.lower() == '.jpg':
+                    file_mtime = entry.stat().st_mtime
+                    if current_time - file_mtime > expire_seconds:
+                        entry.unlink()
+                        logger.info(f'Cleaned up expired temp artwork: {entry}')
+        except Exception as e:
+            logger.warning(f'Failed to cleanup expired temp artwork: {e}')
+
+    def get_tmp_artist_artwork_path(self, temp_id: str) -> Path | None:
+        '''
+        get temp artist artwork path with validation
+        Args:
+            temp_id: temp id
+        Returns:
+            Path if valid and not expired, None otherwise
+        '''
+        # validate temp_id (prevent path traversal)
+        if '..' in temp_id or '/' in temp_id or '\\' in temp_id:
+            return None
+
+        temp_path = self.settings.TMP_ARTWORK_DIR / f'{temp_id}.jpg'
+        if not temp_path.exists():
+            return None
+
+        # check if expired
+        file_mtime = temp_path.stat().st_mtime
+        if time.time() - file_mtime > self.settings.TMP_ARTWORK_CACHE_EXPIRE:
+            # delete expired file
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+            return None
+
+        return temp_path

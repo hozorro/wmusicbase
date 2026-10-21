@@ -163,6 +163,11 @@ class Settings(BaseSettings):
     NETEASE_PLAYLIST_API: str = Field(..., description='Netease playlist api')
     NETEASE_SONG_API: str = Field(..., description='Netease song api')
 
+    # ========== Third-party Search API config ==========
+    THIRD_PARTY_SEARCH_BASE_URL: str = Field('http://192.168.1.103:3000', description='Third-party search API base URL')
+    THIRD_PARTY_SEARCH_API: str = Field('/search', description='Third-party search API path')
+    TMP_ARTWORK_CACHE_EXPIRE: int = Field(900, description='Temp artwork cache expire time in seconds (default: 15 minutes)')
+
     # ========== Other variables ========
     MAX_UPDATE_META_BATCH_COUNT: int = Field(20, description='max batch count of items to update metadata')
     

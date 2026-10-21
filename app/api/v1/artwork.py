@@ -110,6 +110,24 @@ async def get_tmp_track_artwork(
         status_code=status.HTTP_404_NOT_FOUND
     )
 
+@router.get('/tmp/artist/{temp_id}', tags=['artwork'])
+async def get_tmp_artist_artwork(
+    temp_id: str,
+    service: ArtworkService = Depends(ArtworkService)
+):
+    '''serve temp artist artwork image'''
+    file_path = service.get_tmp_artist_artwork_path(temp_id)
+    if not file_path:
+        raise BusinessException(
+            code=60123,
+            msg='temp artwork not found or expired',
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    return FileResponse(
+        file_path,
+        headers={'Cache-Control': 'no-cache'}
+    )
+
 @router.get('/default/{art_type}', tags=['artwork'])
 async def get_default_artwork(art_type: str, service: ArtworkService = Depends(ArtworkService)):
     cache_path = await service.get_default_art(art_type)
