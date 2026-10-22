@@ -127,8 +127,6 @@ async def update_track_cover(
     await file.close()
     try:
         await service.update_track_cover(track_id, content)
-    except BusinessException:
-        raise
     except Exception as e:
         raise BusinessException(
             code=60306,

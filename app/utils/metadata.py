@@ -324,6 +324,20 @@ def read_metadata(file_path: str | Path) -> dict[str, Any] | None:
     elif f_path.suffix.lower() == '.flac':
         return easy_metadata(f_path)
 
+def _sniff_image_mime(data: bytes) -> str:
+    '''detect image mime type from magic bytes, fall back to image/jpeg'''
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if data[:3] == b'\xff\xd8\xff':
+        return 'image/jpeg'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    if data[:2] == b'BM':
+        return 'image/bmp'
+    return 'image/jpeg'
+
 def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
     if Path(file_path).exists():
         try:
@@ -364,7 +378,12 @@ def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
                     audio['TXXX:Acoustid Id'] = TXXX(encoding=3, desc='Acoustid Id', text=[acoustid_id])
                 cover_art_data = meta.get('cover_art_data', None)
                 if cover_art_data and type(cover_art_data) == bytes:
-                    audio['APIC'] = APIC(encoding=3, mime='image/jpeg', type=3, desc='Cover', data=cover_art_data)
+                    # remove ALL existing APIC frames first, otherwise the new
+                    # frame is merely appended and readers keep showing the old cover
+                    for key in [k for k in audio.keys() if k == 'APIC' or k.startswith('APIC:')]:
+                        del audio[key]
+                    mime = _sniff_image_mime(cover_art_data)
+                    audio['APIC'] = APIC(encoding=3, mime=mime, type=3, desc='Cover', data=cover_art_data)
                 audio.save()
             elif Path(file_path).suffix.lower() == '.flac':
                 audio = FLAC(file_path)
@@ -391,9 +410,11 @@ def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
                 if cover_art_data and type(cover_art_data) == bytes:
                     picture = Picture()
                     picture.data = cover_art_data
-                    picture.mime = 'image/jpeg'
+                    picture.mime = _sniff_image_mime(cover_art_data)
                     picture.type = 3
                     picture.desc = 'Cover'
+                    # clear existing pictures first, add_picture only appends
+                    audio.clear_pictures()
                     audio.add_picture(picture)
                 audio.save()
         except Exception:
