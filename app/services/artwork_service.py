@@ -567,27 +567,36 @@ class ArtworkService:
         await self.db.commit()
         return img_path
 
-    def has_album_directory(self, album: Album) -> bool:
+    async def _get_first_track_path(self, album_id: int) -> str | None:
+        '''query the path of any track of the album (avoid lazy-loading album.tracks in async)'''
+        result = await self.db.execute(
+            select(Track.path)
+            .where(Track.album_id == album_id, Track.is_deleted == False)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def has_album_directory(self, album: Album) -> bool:
         '''
         whether the album has directory, True if satisfied the two conditions:
         - the album has any track with the track.path's parent folder name == album.title
         - album.title do not starts with "Unknown"
         '''
-        if not album.tracks: return False
-
         # exclude the album title starts with "Unknown"
         if album.title.startswith('Unknown'): return False
 
+        track_path = await self._get_first_track_path(album.id)
+        if not track_path: return False
+
         # any track of the album with the track.path's parent folder name == album title
         # (assume that all the track of the album is in the same directory)
-        return Path(album.tracks[0].path).parent.name == album.title
+        return Path(track_path).parent.name == album.title
 
-    def get_album_directory(self, album: Album) -> Path | None:
+    async def get_album_directory(self, album: Album) -> Path | None:
         '''get album directory'''
-        try:
-            return Path(album.tracks[0].path).parent
-        except:
-            return None
+        track_path = await self._get_first_track_path(album.id)
+        if not track_path: return None
+        return self.settings.MUSIC_LIBRARY_PATH / Path(track_path).parent
 
     async def find_album_cover_in_directory(self, album_dir: Path) -> Path | None:
         '''
@@ -642,7 +651,7 @@ class ArtworkService:
             return None
         
         # 2. first: find cover.jpg / folder.jpg in the album directory
-        album_dir = self.get_album_directory(album)
+        album_dir = await self.get_album_directory(album)
         if album_dir:
             dir_cover = await self.find_album_cover_in_directory(album_dir)
             if dir_cover:
@@ -681,8 +690,8 @@ class ArtworkService:
                 status_code=status.HTTP_404_NOT_FOUN
             )
         content= await image_file.read()
-        if self.has_album_directory(album): 
-            album_dir = self.get_album_directory(album)
+        if await self.has_album_directory(album): 
+            album_dir = await self.get_album_directory(album)
             img_path = album_dir / 'cover.jpg'
             async with aiofiles.open(img_path, 'wb') as f: 
                 await f.write(content)
