@@ -44,6 +44,15 @@ class ArtType(str, Enum):
     PLAYLIST = 'playlist'
     TMP = 'tmp'
 
+    def __str__(self) -> str:
+        '''return the value, not 'ArtType.ALBUM'
+
+        python 3.11+ keeps Enum.__str__ for `class X(str, Enum)`, so f-string
+        interpolation yields 'ArtType.ALBUM' and every path built as
+        ARTWORK_DIR/f'{art_type}s' points to a directory that never exists.
+        '''
+        return self.value
+
 class ArtworkService:
     """handle artwork of track, artist and album"""
     def __init__(self, db: DbDep, settings: SettingsDep):
@@ -52,12 +61,15 @@ class ArtworkService:
 
     async def _save_artwork_to_cache(self, id: int | str, art_type: ArtType, cover_data: bytes | Path, additional: str = '') -> Path | None:
         '''save artwork to cache(unified format with jpg, and compressed)'''
-        if art_type not in ['track', 'artist', 'album', 'playlist', 'tmp']: 
+        try:
+            art_type = ArtType(art_type)   # accept both the enum and its plain value
+        except ValueError:
             logger.error(f'Invalid img_cate: {art_type}')
             return None
-        cache_dir = self.settings.ARTWORK_DIR / f'{art_type}s'
+        cache_dir = self.settings.ARTWORK_DIR / f'{art_type.value}s'
         cache_path = cache_dir / (f'{id}_{additional}.jpg' if additional else f'{id}.jpg')
         try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
             # capatibale with old version: accept either raw bytes or a source file path
             img_data: bytes
             if isinstance(cover_data, Path):
@@ -759,7 +771,7 @@ class ArtworkService:
         if art_type == 'artist':
             default_art = (self.settings.ARTWORK_DIR / 'artists' / 'default_face.jpg').resolve()
         else:
-            default_art = (self.settings.ARTWORK_DIR / f'{art_type}s' / 'default.jpg').resolve()
+            default_art = (self.settings.ARTWORK_DIR / f'{art_type.value}s' / 'default.jpg').resolve()
         if default_art.exists(): 
             return default_art
         return None
@@ -769,7 +781,9 @@ class ArtworkService:
 
             img_byte_arr = resize_image(cover_data, 1024)
 
-            default_path = self.settings.ARTWORK_DIR / f'{art_type}s' / 'default.jpg'
+            default_dir = self.settings.ARTWORK_DIR / f'{art_type.value}s'
+            default_dir.mkdir(parents=True, exist_ok=True)
+            default_path = default_dir / 'default.jpg'
             async with aiofiles.open(default_path, 'wb') as f: 
                 await f.write(img_byte_arr)
             logger.info(f'Set default {art_type} artwork')
