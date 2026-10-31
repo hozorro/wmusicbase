@@ -9,7 +9,7 @@
 '''
 
 
-import aiofiles, requests
+import aiofiles, requests, re
 from datetime import datetime
 from fastapi import Request, status
 from sqlalchemy import select, func, desc, nulls_last
@@ -53,7 +53,7 @@ class TrackService:
             track.cover_art_hash = new_hash
             await self.db.commit()
 
-    async def update_tracks_field_tag(self, track_ids: list[int], field: str, value: str | int | list[str]) -> list[str]:
+    async def update_tracks_field_tag(self, track_ids: list[int], field: str, value: str | int | list[str]) -> list[dict]:
         '''update track field tag, used for batch editing'''
         tracks = await self.db.execute(select(Track).where(Track.id.in_(track_ids)))
         track_paths = [track.path for track in tracks.scalars()]
@@ -61,7 +61,7 @@ class TrackService:
         for track_path in track_paths:
             try:
                 track_path_abs = str((self.settings.MUSIC_LIBRARY_PATH / track_path).resolve())
-                self._update_track_file_tag(track_path_abs, {field: value})
+                await self._update_track_file_tag(track_path_abs, {field: value})
             except Exception as e:
                 errors.append({
                     'track_path': track_path,
@@ -137,7 +137,7 @@ class TrackService:
             return None
         return track
     
-    async def get_random_tracks(self, limit: int = 20) -> list[Track]:
+    async def get_random_tracks(self, limit: int = 20):
         '''get random tracks'''
         stmt = (
             select(Track)
@@ -154,7 +154,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_artist_random_tracks(self, artist_id: int, limit: int = 20) -> list[Track]:
+    async def get_artist_random_tracks(self, artist_id: int, limit: int = 20):
         '''get random tracks of an artist'''
         stmt = (
             select(Track).options(
@@ -171,7 +171,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_genre_random_tracks(self, genre_id: int, limit: int = 20) -> list[Track]:
+    async def get_genre_random_tracks(self, genre_id: int, limit: int = 20):
         '''get random tracks of an genre'''
         stmt = (
             select(Track).options(
@@ -188,7 +188,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_favorite_tracks(self, limit: int = 100) -> list[Track]:
+    async def get_favorite_tracks(self, limit: int = 100):
         '''get user favorite tracks'''
         stmt = (
             select(Track)
@@ -206,7 +206,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
 
-    async def get_favorite_ids(self, limit: int = 100) -> list[int]:
+    async def get_favorite_ids(self, limit: int = 100):
         '''get user favorite track ids'''
         stmt = (
             select(TrackFav.track_id)
@@ -218,7 +218,7 @@ class TrackService:
         track_ids = result.scalars().all()
         return track_ids
     
-    async def get_most_played_tracks(self, limit: int | None = 12) -> list[Track]:
+    async def get_most_played_tracks(self, limit: int | None = 12):
         '''get user most played tracks'''
         hit_count_subq = (
             select(
@@ -248,7 +248,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_latest_added_tracks(self, num: int = 12) -> list[Track]:
+    async def get_latest_added_tracks(self, num: int = 12):
         '''get latest added tracks'''
         stmt = (
             select(Track)
@@ -265,7 +265,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_album_tracks(self, album_id: int) -> list[Track]:
+    async def _get_album_tracks(self, album_id: int):
         '''get album tracks'''
         result = await self.db.execute(
             select(Track)
@@ -281,7 +281,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_artist_tracks(self, artist_id: int) -> list[Track]:
+    async def _get_artist_tracks(self, artist_id: int):
         '''get artist tracks'''
         result = await self.db.execute(
             select(Track)
@@ -298,7 +298,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_genre_tracks(self, genre_id: int) -> list[Track]:
+    async def _get_genre_tracks(self, genre_id: int):
         '''get genre tracks'''
         result = await self.db.execute(
             select(Track)
@@ -315,7 +315,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_playlist_tracks(self, playlist_id: int) -> list[Track]:
+    async def _get_playlist_tracks(self, playlist_id: int):
         '''get playlist tracks'''
         result = await self.db.execute(
             select(Track)
@@ -332,7 +332,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_folder_tracks(self, folder_id: int) -> list[Track]:
+    async def _get_folder_tracks(self, folder_id: int):
         '''get folder tracks'''
         result = await self.db.execute(
             select(Track)
@@ -348,7 +348,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_collection_tracks(self, collection_type: str, collection_id: int) -> list[Track]:
+    async def get_collection_tracks(self, collection_type: str, collection_id: int):
         '''get collection tracks, collection can be album/artist/genre'''
         if collection_type == 'album':
             return await self._get_album_tracks(collection_id)
@@ -428,11 +428,11 @@ class TrackService:
             params = {'title': track.title, 'artist': track.artists[0].name}
             try:
                 res = requests.get(
-                    self.settings.LYRIC_OUT_BASE_URL + 'single', 
+                    self.settings.LC_LRCAPI_V1 + 'single', 
                     params=params,
                     headers={
                         'Content-Type': 'text/plain',
-                        'Authorization': self.settings.LYRIC_OUT_API_KEY,
+                        'Authorization': self.settings.LC_LRCAPI_KEY,
                     },
                     timeout=10
                 )

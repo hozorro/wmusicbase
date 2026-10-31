@@ -2,7 +2,9 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import cast
 import dashscope
+from dashscope.api_entities.dashscope_response import MultiModalConversationResponse
 from app.core.config import settings
 
 # ===================== 全局配置 =====================
@@ -62,13 +64,14 @@ def batch_judge(batch_names):
             }
         ]
         try:
-            response = dashscope.MultiModalConversation.call(
+            # 非流式调用，SDK 的注解是 Union[Response, Generator]，这里收窄为 Response
+            response = cast(MultiModalConversationResponse, dashscope.MultiModalConversation.call(
                 api_key=API_KEY,
                 model=QWEN_MODEL,
                 messages=messages,
                 result_format="message",
                 max_tokens=1024
-            )
+            ))
             if response.status_code != 200:
                 print(f"Qwen调用失败 code:{response.code} msg:{response.message}")
                 time.sleep(2)

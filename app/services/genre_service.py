@@ -24,7 +24,8 @@ class GenreService:
         result = await self.db.execute(
             select(Genre).order_by(func.random()).limit(limit)
         )
-        return result.scalars().all()
+        # scalars().all() returns a Sequence, materialize it into a concrete list
+        return list(result.scalars().all())
     
     async def get_all_genres(self) -> list[Genre]:
         '''get all genres with track count'''
@@ -82,15 +83,28 @@ class GenreService:
         genre.track_count = row.track_count
         return genre
     
-    async def get_paginated_tracks_of_genre(self, genre_id: int, page: int = 1, page_size: int = 20) -> tuple[int, list[Track]]:
-        '''get paginated tracks of genre'''
+    async def get_paginated_tracks_of_genre(self, genre_id: int, page: int = 1, page_size: int = 20) -> tuple[int, list[Track]] | None:
+        '''
+        get paginated tracks of genre
+        Returns:
+            (total, tracks), or None when the genre does not exist
+        '''
         offset = (page - 1) * page_size
-        total = await self.db.execute(
+        # existence check and total count in a single query: the outer joins keep
+        # the genre row (with count 0) even when the genre has no track at all,
+        # so an empty result only means the genre itself is missing
+        count_stmt = (
             select(func.count(Track.id))
-            .join(track_genres, Track.id == track_genres.c.track_id)
-            .where(track_genres.c.genre_id == genre_id)
+            .select_from(Genre)
+            .outerjoin(track_genres, Genre.id == track_genres.c.genre_id)
+            .outerjoin(Track, Track.id == track_genres.c.track_id)
+            .where(Genre.id == genre_id)
+            .group_by(Genre.id)
         )
-        total = total.scalar_one()
+        count_result = await self.db.execute(count_stmt)
+        total = count_result.scalar_one_or_none()
+        if total is None:
+            return None
         result = await self.db.execute(
             select(Track)
             .options(
@@ -103,5 +117,6 @@ class GenreService:
             .offset(offset)
             .limit(page_size)
         )
-        tracks = result.scalars().all()
+        # scalars().all() returns a Sequence, materialize it into a concrete list
+        tracks = list(result.scalars().all())
         return total, tracks

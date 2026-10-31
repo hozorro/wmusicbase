@@ -17,18 +17,18 @@ from datetime import datetime
 
 class NeteaseFetchRequest(BaseModel):
     '''fetch playlist request'''
-    playlist_id: int | None = Field(None, description='Netease playlist id')
-    share_text: str | None = Field(None, description='Netease share text with short url')
+    playlist_id: int | None = Field(default=None, description='Netease playlist id')
+    share_text: str | None = Field(default=None, description='Netease share text with short url')
 
 
 class NeteaseTrackInfo(BaseModel):
     '''netease track info'''
     id: int = Field(..., description='Netease track id')
     name: str = Field(..., description='Track name (full name)')
-    mainTitle: str | None = Field(None, description='Main title (without additional info)')
+    mainTitle: str | None = Field(default=None, description='Main title (without additional info)')
     artists: list[str] = Field(default_factory=list, description='Artist names')
     album: str = Field(default='', description='Album name')
-    duration: int = Field(0, description='Duration in milliseconds')
+    duration: int = Field(default=0, description='Duration in milliseconds')
 
 
 class NeteasePlaylistResponse(BaseModel):
@@ -36,7 +36,7 @@ class NeteasePlaylistResponse(BaseModel):
     id: int = Field(..., description='Netease playlist id')
     name: str = Field(..., description='Playlist name')
     coverImgUrl: str = Field(default='', description='Cover image URL')
-    trackCount: int = Field(0, description='Total track count')
+    trackCount: int = Field(default=0, description='Total track count')
     tracks: list[NeteaseTrackInfo] = Field(default_factory=list, description='Track list')
 
 
@@ -45,7 +45,7 @@ class NeteasePlaylistResponse(BaseModel):
 class NeteaseMatchTrackItem(BaseModel):
     '''single track item for matching'''
     name: str = Field(..., description='Track name (full name)')
-    mainTitle: str | None = Field(None, description='Main title (without additional info)')
+    mainTitle: str | None = Field(default=None, description='Main title (without additional info)')
     artists: list[str] = Field(default_factory=list, description='Artist names')
     album: str = Field(default='', description='Album name')
 
@@ -61,8 +61,8 @@ class NeteaseMatchCandidate(BaseModel):
     title: str = Field(..., description='Track title')
     artists: list[str] = Field(default_factory=list, description='Artist names')
     album: str = Field(default='', description='Album title')
-    duration: float = Field(0, description='Duration in seconds')
-    cover_art_hash: str | None = Field(None, description='Cover art hash')
+    duration: float = Field(default=0, description='Duration in seconds')
+    cover_art_hash: str | None = Field(default=None, description='Cover art hash')
 
 
 class NeteaseMatchResult(BaseModel):
@@ -86,9 +86,9 @@ class NeteaseMatchResponse(BaseModel):
     '''match response'''
     matched: list[NeteaseMatchResult] = Field(default_factory=list, description='Matched tracks')
     unmatched: list[NeteaseUnmatchedItem] = Field(default_factory=list, description='Unmatched tracks')
-    total: int = Field(0, description='Total tracks')
-    matched_count: int = Field(0, description='Matched count')
-    unmatched_count: int = Field(0, description='Unmatched count')
+    total: int = Field(default=0, description='Total tracks')
+    matched_count: int = Field(default=0, description='Matched count')
+    unmatched_count: int = Field(default=0, description='Unmatched count')
 
 
 # ============ Netease Create Playlist ============
@@ -96,8 +96,8 @@ class NeteaseMatchResponse(BaseModel):
 class NeteaseCreateRequest(BaseModel):
     '''create playlist request'''
     title: str = Field(..., min_length=1, max_length=100, description='Playlist title')
-    comment: str | None = Field(None, max_length=255, description='Playlist comment')
-    cover_url: str | None = Field(None, description='Cover image URL to download')
+    comment: str | None = Field(default=None, max_length=255, description='Playlist comment')
+    cover_url: str | None = Field(default=None, description='Cover image URL to download')
     tracks: list[int] = Field(..., description='Local track ids in order')
 
 
@@ -105,6 +105,6 @@ class NeteaseCreateResponse(BaseModel):
     '''create playlist response'''
     id: int = Field(..., description='Playlist id')
     title: str = Field(..., description='Playlist title')
-    cover_art_hash: str | None = Field(None, description='Cover art hash')
-    track_count: int = Field(0, description='Track count')
+    cover_art_hash: str | None = Field(default=None, description='Cover art hash')
+    track_count: int = Field(default=0, description='Track count')
     created_at: datetime = Field(..., description='Created at')

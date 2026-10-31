@@ -10,12 +10,15 @@
 
 
 from pathlib import Path
-from mutagen import File as MutagenFile
-from mutagen.id3 import ID3, Encoding
+from mutagen import File as MutagenFile  # pyright: ignore[reportPrivateImportUsage]
+from mutagen.id3 import ID3
 from mutagen.apev2 import APEv2, APENoHeaderError
-from app.schemas.filething import FileInfo
+from app.schemas.filething import AdditionalInfo, FileInfo, PrimaryInfo
 from .metadata import decode_tag_value, read_metadata, write_metadata, extract_cover_art_hash
-from .common import decode_object, parse_year, parse_multiple_value
+from .common import parse_year, parse_multiple_value
+
+# mutagen.id3.Encoding.UTF8 的取值；mutagen 文档同样建议直接把 encoding 设为 3
+_ID3_ENCODING_UTF8 = 3
 
 _KEY_MAP = {
     'artists': 'artist',
@@ -104,13 +107,15 @@ class AudioMeta:
         }
         try:
             meta = read_metadata(self.file_path)
+            if meta is None:
+                raise ValueError(f'No metadata readable from {self.file_path}')
             metadata_primary['title'] = meta.get('title', '')
             metadata_primary['artists'] = meta.get('artists', [])
             metadata_primary['album'] = meta.get('album', '')
             metadata_primary['year'] = meta.get('year', 0)
             metadata_primary['genres'] = meta.get('genres', [])
             metadata_additional['albumartist'] = meta.get('albumartist', [])
-            metadata_additional['cover_art_hash'] = extract_cover_art_hash(self.file_path)
+            metadata_additional['cover_art_hash'] = extract_cover_art_hash(Path(self.file_path))
             metadata_additional['mb_artistids'] = meta.get('mb_artistids', [])
             metadata_additional['mb_albumartistid'] = meta.get('mb_albumartistid', [])
             metadata_additional['mb_albumid'] = meta.get('mb_albumid', '')
@@ -151,14 +156,15 @@ class AudioMeta:
     
     def to_fileinfo(self) -> FileInfo:
         meta_data = self.meta_data
+        apev2_data = self.apev2_data
         return FileInfo(
             path=self.file_path, 
             file_type=self.file_type,
             encoding=self.meta_encoding, 
             version=self.meta_version,
-            meta_id3=meta_data['primary'],
-            meta_apev2=self.apev2_data,
-            meta_additional=meta_data['additional']
+            meta_id3=PrimaryInfo.model_validate(meta_data['primary']),
+            meta_apev2=PrimaryInfo.model_validate(apev2_data) if apev2_data is not None else None,
+            meta_additional=AdditionalInfo.model_validate(meta_data['additional'])
         )
     
     def update_version(self, use_apev2=False, del_id3v1=True, del_apev2=False):
@@ -174,10 +180,10 @@ class AudioMeta:
                 if hasattr(id3_tag[key], 'encoding'):
                     if isinstance(id3_tag[key].text, list):
                         id3_tag[key].text = [decode_tag_value(text, id3_tag[key].encoding) for text in id3_tag[key].text]
-                        id3_tag[key].encoding = Encoding.UTF8
+                        id3_tag[key].encoding = _ID3_ENCODING_UTF8
                     else:
                         id3_tag[key].text = decode_tag_value(id3_tag[key].text, id3_tag[key].encoding)
-                        id3_tag[key].encoding = Encoding.UTF8
+                        id3_tag[key].encoding = _ID3_ENCODING_UTF8
 
         if use_apev2:
             try:
@@ -210,7 +216,12 @@ class AudioMeta:
         write_metadata(self.file_path, meta)
         if del_id3v1:
             tag = MutagenFile(self.file_path, easy=True)
-            tag.save(self.file_path, v1=0)
+            if tag is not None:
+                if self.file_type == 'mp3':
+                    tag.save(self.file_path, v1=0)
+                else:
+                    # flac 没有 ID3v1 标签，且 FLAC.save() 不接受 v1 参数
+                    tag.save(self.file_path)
         if del_apev2:
             try:
                 tag = APEv2(self.file_path)

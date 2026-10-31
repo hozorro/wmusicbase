@@ -98,9 +98,9 @@ class AuthService:
         '''verify access token (JWT)'''
         try:
             payload = jwt.decode(token, self.settings.SECRET_KEY, algorithms=['HS256'])
-            user_id: str = payload.get('sub')
-            client_type: str = payload.get('client_type')
-            jti: str = payload.get('jti')
+            user_id = payload.get('sub', None)
+            client_type = payload.get('client_type', None)
+            jti: str = payload.get('jti', '')
 
             if user_id is None or client_type is None:
                 raise JWTError('Invalid access token')

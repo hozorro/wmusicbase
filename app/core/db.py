@@ -64,9 +64,12 @@ def retry_deadlock(max_retries: int = 3, delay: float = 0.1):
                     # transaction interrupted: force rollback and retry
                     retries += 1
                     logger.warning(f'InFailedSQLTransactionError in {func.__name__}, retrying {retries}/{max_retries}: {str(e)}')
-                    # try to get session and rollback
-                    session = next((arg for arg in args if isinstance(arg, AsyncSession)), None)
-                    if session and not session.is_closed():
+                    # try to get session and rollback(positional or keyword argument)
+                    candidates = list(args) + list(kwargs.values())
+                    session = next((arg for arg in candidates if isinstance(arg, AsyncSession)), None)
+                    # AsyncSession has no is_closed(); a session that still owns a
+                    # transaction is exactly the one that must be rolled back
+                    if session and session.in_transaction():
                         await session.rollback()
                     await asyncio.sleep(delay * retries)
                     if retries >= max_retries:

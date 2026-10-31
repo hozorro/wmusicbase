@@ -164,7 +164,7 @@ class MusicFileProcessor:
         parent_id = None
         if path != root_path:
             parent_folder = await self.get_or_create_folder(path.parent, root_path)
-            parent_id = parent_folder.id
+            parent_id = parent_folder.id if parent_folder else None
 
         stmt = pg_insert(Folder).values(
             path=rel_path, parent_id=parent_id
@@ -193,9 +193,10 @@ class MusicFileProcessor:
         generation/sync to keep consistent with the static artwork file.
         '''
         try:
-            # 1. update basic info
-            track.title = meta.title
-            track.duration = meta.duration
+            # 1. update basic info(title/duration are NOT NULL columns, keep the
+            # same empty fallback as the parser provides for files without tags)
+            track.title = meta.title or ''
+            track.duration = meta.duration or 0.0
             track.bitrate = meta.bitrate
             track.bitrate_mode = meta.bitrate_mode
             track.year = meta.year
@@ -256,7 +257,7 @@ class MusicFileProcessor:
         # ===== create each entity (sequence is important) =====
         # 1. get/handle/create Genre
         genres = []
-        for genre_name in meta.genres:
+        for genre_name in (meta.genres or []):
             genre_strip = genre_name.strip() if genre_name else None
             if genre_strip: 
                 genre = await self.get_or_create_genre(genre_strip)
@@ -264,21 +265,27 @@ class MusicFileProcessor:
                     genres.append(genre)
         # 2. get/handle/create Artist
         artists = []
-        for i, artist_name in enumerate(meta.artists):
+        artist_names = meta.artists or []
+        artist_mbids = meta.mb_artistids or []
+        for i, artist_name in enumerate(artist_names):
             artist_strip = artist_name.strip() if artist_name else None
             if artist_strip:
-                mbid = meta.mb_artistids[i] if i < len(meta.mb_artistids) else None
+                mbid = artist_mbids[i] if i < len(artist_mbids) else None
                 artist = await self.get_or_create_artist(artist_strip, mbid)
                 if artist:
                     artists.append(artist)
         # 3. get/handle/create Album
         # handle album title, if empty, set default title with “Unknown Album(album artist name)”
         album_name = meta.album.strip() if meta.album else f'Unknown Album({album_artist_name})'
+        album: Album | None = None
         album_artist = await self.get_or_create_artist(album_artist_name, mb_albumartistid)
         if album_artist:
             album = await self.get_or_create_album(album_name, meta.year, meta.mb_albumid, album_artist)
         # 4. get/create Folder
         folder = await self.get_or_create_folder(Path(meta.path).parent, self.root_path)
+        if folder is None:
+            logger.error(f'❌Failed to get/create folder for {meta.path}')
+            return False
         # 5. create/update Track
         # note: do not compute/write cover_art_hash here. it must be generated
         # together with the static artwork file (by artwork generation or
@@ -345,20 +352,23 @@ class MusicFileProcessor:
             await self.db.commit()
 
             # update success count and progress
-            if system_state.is_scanning:
-                system_state.scan_progress['success'] += len(self.pending_tracks)
+            progress = system_state.scan_progress
+            if system_state.is_scanning and progress is not None:
+                progress['success'] += len(self.pending_tracks)
             logger.info(f'✅Committed {len(self.pending_tracks)} tracks successfully.')
         
         except SQLAlchemyError as e:
             await self.db.rollback()
             logger.error(f'❌Database batch commit failed: {str(e)}')
-            if system_state.is_scanning: 
-                system_state.scan_progress['failed'] += len(self.pending_tracks)
+            progress = system_state.scan_progress
+            if system_state.is_scanning and progress is not None: 
+                progress['failed'] += len(self.pending_tracks)
         except Exception as e:
             await self.db.rollback()
             logger.error(f'❌Failed to commit pending tracks: {e}')
-            if system_state.is_scanning:
-                system_state.scan_progress['failed'] += len(self.pending_tracks)
+            progress = system_state.scan_progress
+            if system_state.is_scanning and progress is not None:
+                progress['failed'] += len(self.pending_tracks)
         finally:
             self.pending_tracks.clear()
             self.temp_track_artists_map.clear()

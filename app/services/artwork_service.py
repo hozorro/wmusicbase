@@ -12,7 +12,7 @@
 import re, aiofiles, hashlib, shutil, time, uuid, httpx, asyncio, requests
 from pathlib import Path
 from enum import Enum
-from fastapi import UploadFile
+from fastapi import UploadFile, status
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from app.core.exceptions import BusinessException
@@ -42,6 +42,7 @@ class ArtType(str, Enum):
     ARTIST = 'artist'
     ALBUM = 'album'
     PLAYLIST = 'playlist'
+    TMP = 'tmp'
 
 class ArtworkService:
     """handle artwork of track, artist and album"""
@@ -49,7 +50,7 @@ class ArtworkService:
         self.db = db
         self.settings = settings
 
-    async def _save_artwork_to_cache(self, id: int, art_type: ArtType, cover_data: bytes | Path, additional: str = '') -> Path | None:
+    async def _save_artwork_to_cache(self, id: int | str, art_type: ArtType, cover_data: bytes | Path, additional: str = '') -> Path | None:
         '''save artwork to cache(unified format with jpg, and compressed)'''
         if art_type not in ['track', 'artist', 'album', 'playlist', 'tmp']: 
             logger.error(f'Invalid img_cate: {art_type}')
@@ -57,10 +58,13 @@ class ArtworkService:
         cache_dir = self.settings.ARTWORK_DIR / f'{art_type}s'
         cache_path = cache_dir / (f'{id}_{additional}.jpg' if additional else f'{id}.jpg')
         try:
-            img_data = cover_data
-            if not type(cover_data) == bytes: # capatibale with old version
+            # capatibale with old version: accept either raw bytes or a source file path
+            img_data: bytes
+            if isinstance(cover_data, Path):
                 async with aiofiles.open(str(cover_data.resolve()), 'rb') as f:
                     img_data = await f.read()
+            else:
+                img_data = cover_data
         
             # use pillow to unified format and compress the image(avoid big size image consuming unlimited store space)
             img_byte_arr = resize_image(img_data)
@@ -111,14 +115,14 @@ class ArtworkService:
                 
             if image_data:
                 # save as jpeg file(unified image size)
-                img_path = await self._save_artwork_to_cache(track_id, 'track', image_data)
+                img_path = await self._save_artwork_to_cache(track_id, ArtType.TRACK, image_data)
                 if img_path:
                     return img_path
             # 3. try to use album artwork
             album_path = track_path.parent
             img_path = await self.find_album_cover_in_directory(album_path)
             if img_path: # use album artwork if exists
-                img_path = await self._save_artwork_to_cache(track_id, 'track', img_path)
+                img_path = await self._save_artwork_to_cache(track_id, ArtType.TRACK, img_path)
                 return img_path
                 
         # 4. try to use default artwork
@@ -142,7 +146,7 @@ class ArtworkService:
             return None
 
         # 1. remove old static file (track artwork is always overwritten)
-        self.invalidate_artwork_cache(track_id, 'track')
+        self.invalidate_artwork_cache(track_id, ArtType.TRACK)
         # 2. regenerate
         cache_path = await self.get_or_cache_track_artwork(track_id)
         # 3. update hash according to the static file existence
@@ -242,6 +246,9 @@ class ArtworkService:
             cache_path = self.settings.ARTIST_ARTWORK_DIR / f'{id}_{art_type_additional}.jpg'
         elif art_type == 'album':
             cache_path = self.settings.ALBUM_ARTWORK_DIR / f'{id}.jpg'
+        else:
+            logger.error(f'Invalid art_type: {art_type}')
+            return False
 
         if cache_path.exists():
             try:
@@ -429,9 +436,9 @@ class ArtworkService:
         if selected_num != 1:
             shutil.move(str(selected_path), str(first_path))
         # invalidate old cache
-        self.invalidate_artwork_cache(artist_id, 'artist', art_type)
+        self.invalidate_artwork_cache(artist_id, ArtType.ARTIST, art_type)
         # save new _1 to cache and compute hash from the static file
-        cache_path = await self._save_artwork_to_cache(artist_id, 'artist', first_path, art_type)
+        cache_path = await self._save_artwork_to_cache(artist_id, ArtType.ARTIST, first_path, art_type)
         cover_art_hash = self.compute_file_hash(cache_path) if cache_path else None
         if art_type == 'face':
             artist.face_art_hash = cover_art_hash
@@ -511,17 +518,18 @@ class ArtworkService:
 
         # try 1：fetch artist cover from directory（only when the artist directory exists）
         artist = await self.db.get(Artist, artist_id)
-        dir_img = await self.find_artist_image_in_directory(artist.name, img_cate)
+        # artist may be missing: skip the directory lookup and fall back to the steps below
+        dir_img = await self.find_artist_image_in_directory(artist.name, img_cate) if artist else None
         if dir_img:
             logger.info(f'Found artist cover in directory: {dir_img}')
-            cache_path = await self._save_artwork_to_cache(artist_id, 'artist', dir_img, img_cate)
+            cache_path = await self._save_artwork_to_cache(artist_id, ArtType.ARTIST, dir_img, img_cate)
             if cache_path: return cache_path
             
         # try 2：find the most common track artwork of the artist
         common_img = await self.find_common_track_artwork(artist_id)
         if common_img:
             logger.info(f'Found common track artwork for artist {artist_id}: {common_img}')
-            cache_path = await self._save_artwork_to_cache(artist_id, 'artist', common_img, img_cate)
+            cache_path = await self._save_artwork_to_cache(artist_id, ArtType.ARTIST, common_img, img_cate)
             if cache_path: return cache_path
         
         # try 3：use default image
@@ -529,7 +537,7 @@ class ArtworkService:
                                                         else 'default_portrait.jpg')
         if default_img.exists(): 
             # save default image to cache to avoid the 2 steps above for every artist artwork request
-            cache_path = await self._save_artwork_to_cache(artist_id, 'artist', default_img, img_cate)
+            cache_path = await self._save_artwork_to_cache(artist_id, ArtType.ARTIST, default_img, img_cate)
             if cache_path: return cache_path
         
         return None
@@ -556,7 +564,7 @@ class ArtworkService:
             async with aiofiles.open(img_path, 'wb') as f: 
                 await f.write(content)
         # generate/update the static artwork file
-        img_path = await self._save_artwork_to_cache(artist.id, 'artist', content, img_cate)
+        img_path = await self._save_artwork_to_cache(artist.id, ArtType.ARTIST, content, img_cate)
         # update the corresponding hash field based on img_cate
         # (hash of the static file, consistent with the whole project)
         cover_art_hash = self.compute_file_hash(img_path) if img_path else None
@@ -655,7 +663,7 @@ class ArtworkService:
         if album_dir:
             dir_cover = await self.find_album_cover_in_directory(album_dir)
             if dir_cover:
-                cache_path = await self._save_artwork_to_cache(album_id, 'album', dir_cover)
+                cache_path = await self._save_artwork_to_cache(album_id, ArtType.ALBUM, dir_cover)
                 if cache_path: return cache_path
 
         # 3. fallback: get the cover art of the track(the first one)
@@ -663,14 +671,14 @@ class ArtworkService:
             if track.cover_art_hash:
                 track_cover_path = await self.get_or_cache_track_artwork(track.id)
                 if track_cover_path: 
-                    cache_path = await self._save_artwork_to_cache(album_id, 'album', track_cover_path)
+                    cache_path = await self._save_artwork_to_cache(album_id, ArtType.ALBUM, track_cover_path)
                     if cache_path: return cache_path
                 
         # 4. fallback: default image
         default_img = self.settings.ALBUM_ARTWORK_DIR / 'default.jpg'
         if default_img.exists(): 
             # need to cache to avoid the 3 steps above for every album artwork request
-            cache_path = await self._save_artwork_to_cache(album_id, 'album', default_img)
+            cache_path = await self._save_artwork_to_cache(album_id, ArtType.ALBUM, default_img)
             if cache_path: 
                 return cache_path
             
@@ -687,16 +695,17 @@ class ArtworkService:
             raise BusinessException(
                 code=30204, 
                 msg='album not found', 
-                status_code=status.HTTP_404_NOT_FOUN
+                status_code=status.HTTP_404_NOT_FOUND
             )
         content= await image_file.read()
         if await self.has_album_directory(album): 
             album_dir = await self.get_album_directory(album)
-            img_path = album_dir / 'cover.jpg'
-            async with aiofiles.open(img_path, 'wb') as f: 
-                await f.write(content)
+            if album_dir:
+                img_path = album_dir / 'cover.jpg'
+                async with aiofiles.open(img_path, 'wb') as f: 
+                    await f.write(content)
         # generate/update the static artwork file
-        img_path = await self._save_artwork_to_cache(album.id, 'album', content)
+        img_path = await self._save_artwork_to_cache(album.id, ArtType.ALBUM, content)
         # hash of the static file, consistent with the whole project
         album.cover_art_hash = self.compute_file_hash(img_path) if img_path else None
         await self.db.commit()
@@ -723,7 +732,7 @@ class ArtworkService:
                 status_code=status.HTTP_404_NOT_FOUND
             )
         content= await image_file.read()
-        img_path = await self._save_artwork_to_cache(playlist_id, 'playlist', content)
+        img_path = await self._save_artwork_to_cache(playlist_id, ArtType.PLAYLIST, content)
         # hash of the static file, consistent with the whole project
         playlist.cover_art_hash = self.compute_file_hash(img_path) if img_path else None
         await self.db.commit()
@@ -743,7 +752,7 @@ class ArtworkService:
         if not image_data: 
             return None
         
-        img_path = await self._save_artwork_to_cache(name, 'tmp', image_data)
+        img_path = await self._save_artwork_to_cache(name, ArtType.TMP, image_data)
         return img_path
     
     async def get_default_art(self, art_type: ArtType) -> Path | None:
@@ -784,7 +793,14 @@ class ArtworkService:
         # cleanup expired temp files first
         self._cleanup_expired_tmp_artwork()
 
-        search_url = f'{self.settings.THIRD_PARTY_SEARCH_BASE_URL}{self.settings.THIRD_PARTY_SEARCH_API}'
+        if not self.settings.LC_NETEASE_API:
+            raise BusinessException(
+                code=60124,
+                msg='third-party search api not configured',
+                status_code=502
+            )
+
+        search_url = f'{self.settings.LC_NETEASE_API}/search'
         params = {
             'keywords': artist_name,
             'type': 100,

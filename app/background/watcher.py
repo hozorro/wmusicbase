@@ -27,6 +27,7 @@ from app.core.config import settings
 from app.core.logger import logger, init_logging
 from app.services.processor import MusicFileProcessor
 from app.services.artwork_service import ArtworkService
+from app.services.lyric_service import LyricService
 from app.models.track import Track
 from app.utils.metadata import easy_metadata, parse_metadata
 from app.schemas.filething import ParsedMeta
@@ -64,6 +65,8 @@ class MusicLibraryWatcher:
 
         self.debounce_dict = {} # {filepath: {'event_type': str, 'timestamp': float}}
         self.debounce_delay = debounce_delay
+        # lyric fetching runs in its own thread, submit() never blocks the event loop
+        self.lyric_service = LyricService(settings)
 
     def _is_file_ready(self, file_path: str) -> bool:
         '''check if file is ready to be processed'''
@@ -79,6 +82,7 @@ class MusicLibraryWatcher:
         if not self._is_file_ready(file_path): return
         self.debounce_dict[file_path] = {'event_type': event_type, 'time': time.time()}
         logger.debug(f'Detected file {event_type}: {relative_path(file_path)}')
+    
     async def debounce_worker(self):
         '''
         async debounce worker, check which files is 'silent down',
@@ -91,13 +95,41 @@ class MusicLibraryWatcher:
 
             for path, event_data in list(self.debounce_dict.items()):
                 if now - event_data['time'] > self.debounce_delay:
-                    to_process.append(path)
+                    # keep the event payload, the path alone cannot rebuild it
+                    to_process.append((path, event_data))
                     del self.debounce_dict[path]
 
-            for path in to_process:
+            for path, event_data in to_process:
                 await self.queue.put((path, event_data['event_type']))
 
             await asyncio.sleep(0.5)
+
+    def _enqueue_lyric(self, file_path: str, meta: ParsedMeta):
+        '''
+        queue a background lyric fetch for a persisted track.
+        the lyric (.lrc, same name as the audio file) is written next to the track
+        by the lyric worker thread. never raises: a lyric problem must not break
+        the file pipeline.
+        '''
+        title = (meta.title or '').strip()
+        if not title:
+            logger.debug(f'🎵No title tag, skip lyric fetch: {relative_path(file_path)}')
+            return
+        try:
+            queued = self.lyric_service.submit({
+                'path': str(Path(file_path)),
+                'title': title,
+                'artists': list(meta.artists or []),
+                'album': (meta.album or '').strip(),
+                'duration': float(meta.duration or 0),
+            })
+        except Exception as e:
+            logger.error(f'❌Queue lyric fetch failed: {relative_path(file_path)}: {e}')
+            return
+        if queued:
+            logger.info(f'🎵Lyric fetch queued: {relative_path(file_path)}')
+        else:
+            logger.debug(f'🎵Lyric fetch ignored, already pending: {relative_path(file_path)}')
 
     async def consumer_worker(self):
         '''
@@ -124,14 +156,19 @@ class MusicLibraryWatcher:
                             await db.commit()
                             logger.info(f'Deleted file: {relative_path(file_path)}')
                         else:
-                            logger.warning('Track not found: {relative_path(file_path)}')
+                            logger.warning(f'Track not found: {relative_path(file_path)}')
                     else:
                         try:
                             if Path(file_path).suffix.lower() == ".mp3":
                                 meta = parse_metadata(file_path)
                             else:
                                 meta = easy_metadata(file_path)
-                            await processor.process_single_file(ParsedMeta.model_validate({"path": file_path, **meta}), True)
+                            if not meta:
+                                # unreadable or unsupported tags: skip this file, keep the queue alive
+                                logger.warning(f'Skip file without metadata: {relative_path(file_path)}')
+                                continue
+                            parsed = ParsedMeta.model_validate({"path": file_path, **meta})
+                            await processor.process_single_file(parsed, True)
                             # commit immediately to get the track id of new tracks
                             if len(processor.pending_tracks) > 0:
                                 await processor.commit_pending_tracks()
@@ -140,6 +177,8 @@ class MusicLibraryWatcher:
                             await artwork_service.sync_artworks_after_track_change(relative_path(file_path))
                             await db.commit()
                             logger.info(f'✅File processed: {relative_path(file_path)}')
+                            # metadata is in the database now, fetch the lyric in the background
+                            self._enqueue_lyric(file_path, parsed)
                         except Exception as e:
                             logger.error(f'❌Commit pending tracks error: {str(e)}', exc_info=True)
                         finally:
@@ -172,6 +211,11 @@ class MusicLibraryWatcher:
         finally:
             observer.stop()
             observer.join()
+            # lyric worker is a daemon thread, join it so no fetch outlives the watcher
+            try:
+                self.lyric_service.stop(timeout=2)
+            except Exception as e:
+                logger.warning(f'🛑Stop lyric service failed: {e}')
 
 if __name__ == '__main__':
     watcher = MusicLibraryWatcher(str(settings.MUSIC_LIBRARY_PATH))

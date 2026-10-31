@@ -9,12 +9,22 @@
 '''
 
 
-from fastapi import APIRouter, Depends, Query
-from app.schemas.common import ResponseModel, GenreBase
+from fastapi import APIRouter, Depends, Query, status
+from app.core.exceptions import BusinessException
+from app.schemas.common import ResponseModel, GenreBase, TrackBrief
 from app.schemas.genre import GenreTracksResponse
 from app.services.genre_service import GenreService
 
 router = APIRouter()
+
+def _genre_not_found(genre_id: int) -> BusinessException:
+    '''build the unified 404 exception for a missing genre'''
+    return BusinessException(
+        code=30404, 
+        msg=f'genre not exists: {genre_id}', 
+        detail={'genre_id': genre_id},
+        status_code=status.HTTP_404_NOT_FOUND
+    )
 
 @router.get('/randomgenres', response_model=ResponseModel[list[GenreBase]])
 async def get_random_genres(service: GenreService = Depends(GenreService)):
@@ -29,6 +39,8 @@ async def get_genres(service: GenreService = Depends(GenreService)):
 @router.get('/{genre_id}', response_model=ResponseModel[GenreBase])
 async def get_genre(genre_id: int, service: GenreService = Depends(GenreService)):
     genre = await service.get_genre(genre_id)
+    if not genre:
+        raise _genre_not_found(genre_id)
     return ResponseModel(data=GenreBase.model_validate(genre))
 
 @router.get('/{genre_id}/tracks', response_model=ResponseModel[GenreTracksResponse])
@@ -38,5 +50,12 @@ async def get_genre_tracks(
     page_size: int = Query(20, ge=10, le=100, description='page size'), 
     service: GenreService = Depends(GenreService)
 ):
-    total, tracks = await service.get_paginated_tracks_of_genre(genre_id, page, page_size)
-    return ResponseModel(data=GenreTracksResponse(total=total, tracks=tracks))
+    result = await service.get_paginated_tracks_of_genre(genre_id, page, page_size)
+    if result is None:
+        raise _genre_not_found(genre_id)
+    total, tracks = result
+    # convert ORM tracks into the brief schema explicitly (same as other track endpoints)
+    return ResponseModel(data=GenreTracksResponse(
+        total=total, 
+        tracks=[TrackBrief.model_validate(t) for t in tracks]
+    ))

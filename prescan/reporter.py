@@ -171,10 +171,11 @@ class InspectReporter:
                     lines.append(f'    {badge} {issue.message}')
             lines.append('')
 
-            # CSV export
-            if export and export.lower() == 'csv' and hasattr(check, 'export_csv'):
+            # CSV export: export_csv is only implemented by some checks
+            export_csv = getattr(check, 'export_csv', None)
+            if export and export.lower() == 'csv' and callable(export_csv):
                 out = output_path or Path(f'd:/{check_cls.name}.csv')
-                row_count = check.export_csv(out)
+                row_count = export_csv(out)
                 lines.append(f'    {_c("Exported", "green")} {row_count} rows -> {out}')
                 lines.append('')
 

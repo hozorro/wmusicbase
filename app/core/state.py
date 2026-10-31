@@ -10,18 +10,40 @@
 
 
 from dataclasses import dataclass
+from typing import TypedDict
+
+class ScanProgress(TypedDict):
+    '''library scan progress'''
+    total: int
+    processed: int
+    success: int
+    failed: int
+    current_file: str
+
+class ArtworkProgress(TypedDict):
+    '''artwork generation progress, reported to frontend by sse'''
+    phase: str
+    phase_total: int
+    phase_processed: int
+    phase_generated: int
+    phase_skipped: int
+    phase_failed: int
+    total_generated: int
+    total_skipped: int
+    total_failed: int
+    current_item: str
 
 @dataclass
 class SystemState:
     is_watcher_running: bool = False    # only for dev when watcher is running in fastapi background task mode
     is_scanning: bool = False
-    scan_progress: dict[str, int | str] | None = None
+    scan_progress: ScanProgress | None = None
 
     _is_scanning_canceled: bool = False
 
     # artwork generation state
     is_generating_artworks: bool = False
-    artwork_progress: dict[str, int | str] | None = None
+    artwork_progress: ArtworkProgress | None = None
     _is_artwork_gen_canceled: bool = False
 
     @property

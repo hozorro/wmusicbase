@@ -32,7 +32,7 @@ class FileService:
         '''exclude special characters from filename'''
         return re.sub(r'[\\/:*?"<>|]', '_', filename)
     
-    async def save_temp_file(self, file_data: bytes, filename: str) -> Path:
+    async def save_temp_file(self, file_data: bytes, filename: str):
         '''save file to temp directory, return file path'''
         safe_name = self._sanitize_filename(filename)
         temp_path = self.settings.TEMP_DIR / f'{uuid.uuid4().hex}_{safe_name}'
@@ -67,7 +67,7 @@ class FileService:
         sessions.sort(key=lambda x: x['created_at'], reverse=True)
         return sessions
 
-    def move_single_to_staging(self, session_id: str, temp_file_id: str) -> str:
+    def move_single_to_staging(self, session_id: str, temp_file_id: str):
         '''move single file to staging session directory'''
         temp_file = self.settings.TEMP_DIR / temp_file_id
         if not temp_file.exists():
@@ -114,8 +114,8 @@ class FileService:
         return list(map(lambda x: setattr(x, 'path', str(Path(x.path).relative_to(session_songs_dir))) or x, files))    
 
     def update_file_version(self, session_id: str, file_path: str, use_apev2: bool = False, del_id3v1: bool = True, del_apev2: bool = False):
-        file_path = self.settings.STAGING_DIR / session_id / 'songs' / file_path
-        audio_meta = AudioMeta(str(file_path))
+        staged_file = self.settings.STAGING_DIR / session_id / 'songs' / file_path
+        audio_meta = AudioMeta(str(staged_file))
         audio_meta.update_version(use_apev2, del_id3v1, del_apev2)
 
     def update_file_metatags(self, session_id: str, filename: str, new_meta: dict, del_id3v1: bool = True, del_apev2: bool = False):
@@ -130,7 +130,8 @@ class FileService:
                 new_meta['cover_art_data'] = cover_data
         audio_meta = AudioMeta(str(file_path))
         audio_meta.update_metadata(new_meta, del_id3v1, del_apev2)
-        clear_cached_cover(release_id)
+        if release_id:
+            clear_cached_cover(release_id)
 
     def delete_staging_files(self, session_id: str, items: list[str]) -> int:
         '''delete files from staging session, return deleted count'''
@@ -181,7 +182,7 @@ class ArchiveService:
         else:
             return base / track_title
 
-    async def archive_session(self, session_id: str, items: list[str], lang: str, is_use_original_name: bool, playlist: str | None) -> list[str]:
+    async def archive_session(self, session_id: str, items: list[str], lang: str, is_use_original_name: bool, playlist: str | None) -> list[dict]:
         '''archive all the files in the staging session directory to its proper place in the music library'''
         session_dir = self.settings.STAGING_DIR / session_id
         songs_dir = session_dir / 'songs'
@@ -198,15 +199,20 @@ class ArchiveService:
             except Exception:
                 errors.append({'file': song_file.name, 'error': 'Failed to extract metadata'})
                 continue
+            if not meta:
+                # unsupported suffix or empty metadata: same handling as a read failure
+                errors.append({'file': song_file.name, 'error': 'Failed to extract metadata'})
+                continue
             # 2. recognize the artist_name(used for path generation)
             artist_name = 'Unknown Artist'
             if meta.get('albumartist'):
                 artist_name = meta['albumartist'][0]
-            elif meta['artists']:
+            elif meta.get('artists'):
                 artist_name = meta['artists'][0]
             # 3. recognize file name(track title first, then the filename)
-            if not is_use_original_name and meta.get('title'):
-                filename = meta.get('title') + song_file.suffix
+            title = meta.get('title')
+            if not is_use_original_name and title:
+                filename = title + song_file.suffix
             else:
                 filename = song_file.name[33:]  # trim the uuid ahead(32 chars)
             # 4. generate target path

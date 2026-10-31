@@ -16,7 +16,8 @@ from app.core.db import get_db
 from app.core.config import Settings
 from app.core.exceptions import BusinessException
 from app.schemas.token import ClientType
-from typing import Annotated
+from typing import Annotated, cast
+from collections.abc import MutableMapping
 
 # ========== client type ==========
 async def get_client_type(request: Request) -> ClientType:
@@ -60,7 +61,11 @@ from app.schemas.user import CurrentUser
 from app.models import User
 from cachetools import TTLCache
 
-_USER_CACHE = TTLCache(maxsize=1000, ttl=900)
+# typed cache: the value type keeps get_current_user free of object/Any leaks.
+# cast is used because TTLCache is not generic at runtime(cachetools 5.x).
+_USER_CACHE: MutableMapping[int, CurrentUser] = cast(
+    MutableMapping[int, CurrentUser], TTLCache(maxsize=1000, ttl=900)
+)
 
 auth2_scheme = OAuth2PasswordBearer(tokenUrl='auth/login', auto_error=False)
 
@@ -80,7 +85,7 @@ async def get_current_user(
     
     try:
         payload = await service.verify_access_token(token)
-        if payload['client_type'] != client_type:
+        if not payload or payload['client_type'] != client_type:
             raise BusinessException(
                 code=20007,
                 msg='token type mismatch with endpoint',
@@ -108,6 +113,8 @@ async def get_current_user(
         current_user = CurrentUser(id=user.id, is_admin=user.is_admin, username=user.username)
         _USER_CACHE[user_id] = current_user
         return current_user
+    except BusinessException:
+        raise
     except Exception as e:
         raise BusinessException(
             code=20008,

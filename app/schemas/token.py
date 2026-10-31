@@ -28,7 +28,7 @@ class TokenPair(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(..., title='Username')
     password: str = Field(..., title='Password')
-    device_id: str | None = Field(None, title='Device ID')
+    device_id: str | None = Field(default=None, title='Device ID')
 
 class TokenRefreshRequest(BaseModel):
     refresh_token: str = Field(..., title='Refresh Token')

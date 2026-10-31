@@ -16,9 +16,9 @@ from typing import Generic, TypeVar, Literal
 
 class PlaylistCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=100, description='Playlist title')
-    comment: str | None = Field(None, max_length=255, description='Playlist comment')
-    tracks: list[int] | None = Field(None, description='Tracks ids')
-    cover: UploadFile | None
+    comment: str | None = Field(default=None, max_length=255, description='Playlist comment')
+    tracks: list[int] | None = Field(default=None, description='Tracks ids')
+    cover: UploadFile | None = None
 async def playlist_create_with_art_form(
     title: str = Form(..., min_length=1, max_length=100, description='Playlist title'),
     comment: str | None = Form(None, max_length=255, description='Playlist comment'),
@@ -29,17 +29,17 @@ async def playlist_create_with_art_form(
 
 class PlaylistUpdate(BaseModel):
     id: int = Field(..., description='Playlist id')
-    title: str | None = Field(None, min_length=1, max_length=100, description='Playlist title')
-    comment: str | None = Field(None, max_length=255, description='Playlist comment')
-    cover: UploadFile | None
+    title: str | None = Field(default=None, min_length=1, max_length=100, description='Playlist title')
+    comment: str | None = Field(default=None, max_length=255, description='Playlist comment')
+    cover: UploadFile | None = None
 
 async def playlist_update_with_art_form(
     id: int = Form(..., description='Playlist id'),
     title: str = Form(..., min_length=1, max_length=100, description='Playlist title'),
     comment: str | None = Form(None, max_length=255, description='Playlist comment'),
     cover: UploadFile | None = File(None),
-) -> PlaylistCreate:
-    '''Playlist create with art upload depend'''
+) -> PlaylistUpdate:
+    '''Playlist update with art upload depend'''
     return PlaylistUpdate(id=id, title=title, comment=comment, cover=cover)
 
 class TrackToPlaylistRequest(BaseModel):
@@ -73,10 +73,10 @@ class ArtistFavRequest(BaseModel):
     is_favorited: bool = Field(..., description='True to favorite, False to unfavorite')
 
 class PlaylistImport(BaseModel):
-    id: int | None = Field(None, description='Playlist id, only used for update')
+    id: int | None = Field(default=None, description='Playlist id, only used for update')
     title: str = Field(..., description='Playlist title', min_length=1, max_length=100)
-    comment: str | None = Field(None, description='Playlist comment', max_length=255)
-    tracks: list[str] | None = Field(None, description='Tracks', min_length=1, max_length=200)
+    comment: str | None = Field(default=None, description='Playlist comment', max_length=255)
+    tracks: list[str] | None = Field(default=None, description='Tracks', min_length=1, max_length=200)
 
     @field_validator('tracks')
     @classmethod
@@ -116,7 +116,7 @@ class OperationImport(BaseModel, Generic[T]):
     track: str = Field(..., description='track path')
 
     @classmethod
-    def _validate_time_field(cls, v: str) -> T:
+    def _validate_time_field(cls, v: str) -> datetime:
         '''union time field validator'''
         try:
             return datetime.fromisoformat(v)
@@ -150,7 +150,7 @@ class FavImport(OperationImport[datetime]):
         
 U = TypeVar('U', HitImport, FavImport)
 
-class OperationImportRoot(RootModel[U]):
+class OperationImportRoot(RootModel[list[U]]):
     '''operations import root model'''
     root: list[U] = Field(..., description='Operations array')
 
@@ -179,10 +179,10 @@ class PlaylistJsonUpload(ImportJsonUpload):
     mode: Literal['merge', 'replace', 'skip'] = Field('merge', description='Update playlist mode if exists')
 
 class JsonImportResponse(BaseModel):
-    total: int = Field(0, description='Total playlists')
-    success: int = Field(0, description='Success playlists')
-    skipped: int = Field(0, description='Skipped playlists')
-    failed: int = Field(0, description='Failed playlists')
-    errors: list[str] = Field([], description='Error messages')
+    total: int = Field(default=0, description='Total playlists')
+    success: int = Field(default=0, description='Success playlists')
+    skipped: int = Field(default=0, description='Skipped playlists')
+    failed: int = Field(default=0, description='Failed playlists')
+    errors: list[str] = Field(default_factory=list, description='Error messages')
 
 

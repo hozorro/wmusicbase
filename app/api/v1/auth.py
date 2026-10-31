@@ -58,7 +58,7 @@ async def register(
 ):
     # check if any user exists(can only register when first run and no user exists)
     user_count = await db.scalar(select(func.count(User.id)))
-    if user_count > 0:
+    if user_count and user_count > 0:
         raise BusinessException(
             code=20003,
             msg='registration closed after first user',

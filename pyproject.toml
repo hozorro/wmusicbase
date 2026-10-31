@@ -31,6 +31,7 @@ dependencies = [
     "uvicorn[standard]>=0.30,<1.0",
     "watchdog>=5.0,<7.0",
     "dashscope>=1.25.24",
+    "opencc-python-reimplemented>=0.1.7",
 ]
 
 [project.optional-dependencies]

@@ -10,7 +10,7 @@
 
 
 import os, mimetypes
-import urllib
+from urllib.parse import quote
 from itsdangerous import BadSignature, SignatureExpired
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import Response
@@ -54,6 +54,13 @@ async def stream_track(track_id: int, token: str, request: Request, service: Str
     if settings.DEBUG:
         logger.info(f'serving track file by fastapi: {track_id}')
         track_file = await service.get_audio_file(track_id)
+        # track record may be missing, or the file itself may be gone from disk
+        if not track_file or not os.path.isfile(track_file):
+            raise BusinessException(
+                code=30304, 
+                msg='track file not found', 
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         file_size = os.path.getsize(track_file)
         mime_type, _ = mimetypes.guess_type(track_file)
         mime_type = mime_type or 'audio/mpeg'
@@ -96,14 +103,14 @@ async def stream_track(track_id: int, token: str, request: Request, service: Str
             msg='track file not found', 
             status_code=status.HTTP_404_NOT_FOUND
         )
-    inner = settings.MUSIC_STATIC_PREFIX + urllib.parse.quote(track_path)
+    inner = settings.MUSIC_STATIC_PREFIX + quote(track_path)
     filename = os.path.basename(track_path)
     logger.info(f'serving track file by nginx: {inner}')
     return Response(
         status_code=200,
         headers={
             'X-Accel-Redirect': inner,
-            'Content-Disposition': f"inline; filename*=utf-8''{urllib.parse.quote(filename)}",
+            'Content-Disposition': f"inline; filename*=utf-8''{quote(filename)}",
             'Accept-Ranges': 'bytes',
         }
     )

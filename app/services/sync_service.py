@@ -20,7 +20,7 @@ from app.models import (
     PlaylistHit, PlaylistTrack, Track, TrackFav, TrackHit, track_artists
 )
 from app.schemas.sync import (
-    SyncAlbum, SyncArtist, SyncArtistRef, SyncFolder, SyncGenre,
+    SyncAlbum, SyncAlbumRef, SyncArtist, SyncArtistRef, SyncFolder, SyncGenre,
     SyncPlaylist, SyncPlaylistTrackRef, SyncTrack
 )
 
@@ -160,7 +160,7 @@ class SyncService:
                 id=t.id,
                 title=t.title,
                 artists=[SyncArtistRef.model_validate(a) for a in t.artists],
-                album=t.album,
+                album=SyncAlbumRef.model_validate(t.album) if t.album is not None else None,
                 duration=t.duration,
                 cover_art_hash=t.cover_art_hash,
                 year=t.year,
@@ -268,7 +268,7 @@ class SyncService:
             SyncAlbum(
                 id=a.id,
                 title=a.title,
-                album_artist=a.album_artist,
+                album_artist=SyncArtistRef.model_validate(a.album_artist) if a.album_artist is not None else None,
                 artists=list(artists_map.get(a.id, {}).values()),
                 cover_art_hash=a.cover_art_hash,
                 track_count=count_map.get(a.id, 0),

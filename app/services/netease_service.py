@@ -31,7 +31,7 @@ from app.schemas.netease import (
     NeteaseUnmatchedItem,
     NeteaseMatchResponse,
 )
-from app.services.artwork_service import ArtworkService
+from app.services.artwork_service import ArtworkService, ArtType
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/2.10.2.200154'
 REFERER = 'https://music.163.com/'
@@ -426,7 +426,7 @@ class NeteaseService:
 
             # save using artwork service
             artwork_service = ArtworkService(self.db, self.settings)
-            img_path = await artwork_service._save_artwork_to_cache(playlist_id, 'playlist', content)
+            img_path = await artwork_service._save_artwork_to_cache(playlist_id, ArtType.PLAYLIST, content)
             if img_path:
                 cover_art_hash = artwork_service.compute_file_hash(img_path)
                 # update playlist cover_art_hash
@@ -610,7 +610,7 @@ class NeteaseService:
         Returns:
             bytes of artist avatar or None if failed
         '''
-        pic_url = self.get_artist_avatar_url(artist_name)
+        pic_url = await self.get_artist_avatar_url(artist_name)
         if not pic_url:
             return None
 

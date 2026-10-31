@@ -12,7 +12,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 from fastapi import Request, UploadFile, status
 from sqlalchemy import select, update, delete, insert, func, desc
 from sqlalchemy.orm import selectinload, joinedload, load_only
@@ -30,7 +30,7 @@ class PlaylistService:
         self.current_user_id = request.state.user_id
 
     # region common use
-    async def _get_tracks_by_paths(self, paths: list[str]) -> tuple[list[Track], list[Track]]:
+    async def _get_tracks_by_paths(self, paths: list[str]) -> tuple[list[Track], list[str]]:
         '''lookup tracks according to the paths(ensure the paths exist)'''
         unique_paths = list({path.strip() for path in paths})
 
@@ -54,25 +54,28 @@ class PlaylistService:
         ordered_tracks = [path_to_track[path] for path in paths if path in path_to_track] 
         return ordered_tracks, missing_paths
     
-    async def create_playlist_and_bind_tracks(self, title: str, comment: str | None, tracks: list[int] | None = None) -> dict:
+    async def create_playlist_and_bind_tracks(self, title: str, comment: str | None, tracks: list[int] | list[str] | None = None) -> dict:
         '''create playlist, and bind tracks if needed'''
         tracks = tracks or []
+        # build the instance before the try block, so `playlist` is always bound
+        # for the error handlers below
+        playlist = Playlist(
+            title=title,
+            comment=comment.strip() if comment else None,
+            user_id=self.current_user_id,
+        )
         try:
             # 1. create playlist
-            playlist = Playlist(
-                title=title,
-                comment=comment.strip() if comment else None,
-                user_id=self.current_user_id,
-            )
             self.db.add(playlist)
             await self.db.flush()
 
             # 2. bind tracks
-            missing = []
+            missing: list[str] = []
             tracks_set = set(tracks)
             if tracks:
+                # caller guarantees a homogeneous list: either all paths or all ids
                 if isinstance(tracks[0], str):  # path
-                    valid_tracks, missing = await self._get_tracks_by_paths(tracks_set)
+                    valid_tracks, missing = await self._get_tracks_by_paths(cast(list[str], tracks_set))
                     playlist_tracks = [
                         PlaylistTrack(
                             playlist_id=playlist.id,
@@ -85,7 +88,7 @@ class PlaylistService:
                     playlist_tracks = [
                         PlaylistTrack(
                             playlist_id=playlist.id,
-                            track_id=id,
+                            track_id=cast(int, id),
                             position=index
                         )
                         for index, id in enumerate(tracks_set)
@@ -184,6 +187,13 @@ class PlaylistService:
     async def get_user_playlist_data(self, user_id: int) -> dict:
         '''get user playlist data, only for backend export, tracks show as path'''
         user = await self.db.get(User, user_id)
+        if user is None:
+            raise BusinessException(
+                code=70505, 
+                msg=f'user not exists: {user_id}', 
+                detail={'user_id': user_id},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         result = await self.db.execute(
             select(Playlist)
             .where(Playlist.user_id == user_id, Playlist.is_deleted == False)
@@ -204,7 +214,7 @@ class PlaylistService:
             } for playlist in playlists]
         }
 
-    async def get_playlist_data(self, playlist_id: int) -> dict:
+    async def get_playlist_data(self, playlist_id: int) -> dict | None:
         '''get playlist data, only for backend export, tracks show as path'''
         result = await self.db.execute(
             select(Playlist)
@@ -224,15 +234,25 @@ class PlaylistService:
                 'user': {'id': playlist.user.id, 'username': playlist.user.username},
                 'tracks': [{'title': track.title, 'path': track.path} for track in playlist.tracks]
             }
+        return None
     
     async def create_playlist_from_json(self, filename: str) -> str:
-        '''create playlist from json file'''
+        '''create playlist from json file, return the result detail message'''
         playlist = await self.parse_playlist_json_file(self.settings.PLAYLISTS_TMP_DIR / filename)
-        return await self.create_playlist_and_bind_tracks(
-            playlist.get('title'),
+        title = playlist.get('title')
+        if not isinstance(title, str) or not title.strip():
+            raise BusinessException(
+                code=70506, 
+                msg=f'playlist json file has no valid title: {filename}', 
+                detail={'filename': filename},
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
+            )
+        result = await self.create_playlist_and_bind_tracks(
+            title,
             playlist.get('comment'),
             tracks=playlist.get('tracks')
         )
+        return result['detail']
     # endregion backend use
 
     # region frontend use
@@ -321,8 +341,10 @@ class PlaylistService:
             .where(PlaylistTrack.playlist_id == playlist_id)
         )
         pos_map = {row.track_id: row.position for row in pos_result}
+        # `position` is a transient attribute (no such column on Track), only used to
+        # serialize PlaylistTrackBrief; setattr keeps the ORM mapping untouched
         for track in playlist.tracks:
-            track.position = pos_map.get(track.id, 0)
+            setattr(track, 'position', pos_map.get(track.id, 0))
 
         return playlist
     
@@ -548,8 +570,7 @@ class PlayDataService:
             )
         
         # 2. limit file size（5MB）
-        file_size = file.read(1)
-        await file.seek(0)
+        file_size = file.size or 0
         if file_size > 5 * 1024 * 1024:  # 5MB
             raise BusinessException(
                 code=70602, 
@@ -590,6 +611,13 @@ class PlayDataService:
         
     async def get_user_track_hits_data(self, user_id: int) -> dict:
         user = await self.db.get(User, user_id)
+        if user is None:
+            raise BusinessException(
+                code=70505, 
+                msg=f'user not exists: {user_id}', 
+                detail={'user_id': user_id},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         stmt = select(TrackHit).options(
             joinedload(TrackHit.track).load_only(Track.path)
         ).where(TrackHit.user_id == user_id).order_by(TrackHit.played_at.asc())
@@ -604,6 +632,13 @@ class PlayDataService:
     
     async def get_user_track_favorites_data(self, user_id: int) -> dict:
         user = await self.db.get(User, user_id)
+        if user is None:
+            raise BusinessException(
+                code=70505, 
+                msg=f'user not exists: {user_id}', 
+                detail={'user_id': user_id},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         stmt = select(TrackFav).options(
             joinedload(TrackFav.track).load_only(Track.title, Track.path)
         ).where(TrackFav.user_id == user_id).order_by(TrackFav.favorited_at.asc())
@@ -809,7 +844,7 @@ class PlayDataService:
                 stats['failed'] = 1
         return stats
 
-    async def import_fav_from_json(self, user_id: int, json_data: dict) -> dict:
+    async def import_fav_from_json(self, user_id: int, json_data: list) -> dict:
         """restore user favs from json file"""
         try:
             import_schema = FavImportRoot(json_data)

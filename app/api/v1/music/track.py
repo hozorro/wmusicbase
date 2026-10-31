@@ -56,17 +56,17 @@ async def get_genre_random_tracks(genre_id: int, num: int = 20, service: TrackSe
     return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
 
 @router.get('/favoritetracks', response_model=ResponseModel[list[TrackBrief]])
-async def get_favorite_tracks(num: int | None = 100, service: TrackService = Depends(TrackService)):
+async def get_favorite_tracks(num: int = 100, service: TrackService = Depends(TrackService)):
     tracks = await service.get_favorite_tracks(num)
     return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
 
 @router.get('/favoritetrackids', response_model=ResponseModel[list[int]])
-async def get_favorite_track_ids(num: int | None = 100, service: TrackService = Depends(TrackService)):
-    track_ids = await service.get_favorite_track_ids(num)
+async def get_favorite_track_ids(num: int = 100, service: TrackService = Depends(TrackService)):
+    track_ids = await service.get_favorite_ids(num)
     return ResponseModel(data=track_ids)
 
 @router.get('/latesttracks', response_model=ResponseModel[list[TrackBrief]])
-async def get_latest_added_tracks(num: int | None = 12, service: TrackService = Depends(TrackService)):
+async def get_latest_added_tracks(num: int = 12, service: TrackService = Depends(TrackService)):
     tracks = await service.get_latest_added_tracks(num)
     return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
 

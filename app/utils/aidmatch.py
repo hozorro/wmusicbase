@@ -14,7 +14,8 @@ from app.core.config import settings
 
 META = ['recordings', 'releases', 'compress']
 
-def generate_fingerprint(file_path, force_fpcalc=False):
+def generate_fingerprint(file_path, force_fpcalc=False) -> tuple[float, str]:
+    '''generate the chromaprint fingerprint, returns (duration, fingerprint token)'''
     try:
         duration, fp = acoustid.fingerprint_file(file_path, force_fpcalc=force_fpcalc)
     except acoustid.NoBackendError:
@@ -23,7 +24,11 @@ def generate_fingerprint(file_path, force_fpcalc=False):
     except acoustid.FingerprintGenerationError:
         print('Fingerprint generation failed')
         raise RuntimeError('Fingerprint generation failed')
-    return duration, fp
+    if not fp:
+        # fpcalc/lib may return an empty fingerprint, never hand it to the api layer
+        raise RuntimeError('Fingerprint generation failed')
+    # the fingerprint comes back as bytes, the api schema carries it as str
+    return duration, fp.decode('utf-8') if isinstance(fp, bytes) else fp
 
 def _parse_result(data):
     if data['status'] != 'ok':
@@ -54,8 +59,9 @@ def _parse_result(data):
                     rcountry = release.get('country', '')
 
                     date = release.get('date')
-                    if date:
-                        year = date.get('year', 0)
+                    # bind year for every release: otherwise a release without date
+                    # silently inherits the year of the previous release
+                    year = date.get('year', 0) if date else 0
                     ryear = year if year else ''
                     rtrackcount = release.get('track_count', 0)
                     

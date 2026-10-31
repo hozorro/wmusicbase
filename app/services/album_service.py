@@ -41,8 +41,8 @@ class AlbumService:
 
         return album
     
-    async def get_album_with_track_detail(self, album_id: int) -> dict | None:
-        '''获取指定专辑的基本信息和所有歌曲的详细信息（含歌曲artists和genres）'''
+    async def get_album_with_track_detail(self, album_id: int) -> Album | None:
+        '''Get album with album info and tracks details(including artists and genres)'''
         stmt = (
             select(Album)
             .where(Album.id == album_id)

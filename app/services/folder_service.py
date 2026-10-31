@@ -58,36 +58,41 @@ class FolderService:
             )
             current_parent_id = pid_result.scalar_one_or_none()
         ancestors.reverse()
-        folder.ancestors = ancestors
+        # transient attribute(no such column on Folder), consumed by FolderResponse
+        setattr(folder, 'ancestors', ancestors)
 
         # compute subfolder_count and track_count for each child
+        subfolder_counts: dict[int | None, int] = {}
+        track_counts: dict[int | None, int] = {}
         child_ids = [c.id for c in folder.children]
         if child_ids:
-            subfolder_counts = dict(
-                (await self.db.execute(
-                    select(Folder.parent_id, func.count(Folder.id))
-                    .where(Folder.parent_id.in_(child_ids))
-                    .group_by(Folder.parent_id)
-                )).all()
-            )
-            track_counts = dict(
-                (await self.db.execute(
-                    select(Track.folder_id, func.count(Track.id))
-                    .where(Track.folder_id.in_(child_ids), Track.is_deleted == False)
-                    .group_by(Track.folder_id)
-                )).all()
-            )
-        else:
-            subfolder_counts = {}
-            track_counts = {}
+            subfolder_counts = {
+                parent_id: count for parent_id, count in (
+                    await self.db.execute(
+                        select(Folder.parent_id, func.count(Folder.id))
+                        .where(Folder.parent_id.in_(child_ids))
+                        .group_by(Folder.parent_id)
+                    )
+                ).all()
+            }
+            track_counts = {
+                folder_id: count for folder_id, count in (
+                    await self.db.execute(
+                        select(Track.folder_id, func.count(Track.id))
+                        .where(Track.folder_id.in_(child_ids), Track.is_deleted == False)
+                        .group_by(Track.folder_id)
+                    )
+                ).all()
+            }
 
         subfolders = []
         for child in folder.children:
-            child.subfolder_count = subfolder_counts.get(child.id, 0)
-            child.track_count = track_counts.get(child.id, 0)
+            # transient attributes(no such columns on Folder), consumed by FolderBrief
+            setattr(child, 'subfolder_count', subfolder_counts.get(child.id, 0))
+            setattr(child, 'track_count', track_counts.get(child.id, 0))
             subfolders.append(child)
         subfolders.sort(key=lambda x: x.path)
-        folder.subfolders = subfolders
+        setattr(folder, 'subfolders', subfolders)
 
         return folder
 
