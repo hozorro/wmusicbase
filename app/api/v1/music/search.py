@@ -35,6 +35,7 @@ class LyricSearchItem(BaseModel):
     title: str
     artists: list[str]
     album: str | None = None
+    album_id: int | None = None
     cover_art_hash: str | None = None
     duration: float
     snippets: list[LyricSnippet]
