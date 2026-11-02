@@ -9,6 +9,8 @@
 '''
 
 
+from typing import Any
+from collections.abc import Sequence
 from sqlalchemy import select
 from app.models import Artist, Album, Track, Playlist
 from app.services.artwork_service import ArtworkService
@@ -137,7 +139,7 @@ class ArtworkGenerator:
     async def _run_phase(
         self,
         phase_name: str,
-        items: list,
+        items: Sequence[Any],
         get_cache_path,
         generate_fn,
         item_label,
@@ -156,6 +158,10 @@ class ArtworkGenerator:
             hash_attr: name of the hash attribute on the entity to update (e.g. 'cover_art_hash')
         '''
         progress = system_state.artwork_progress
+        if progress is None:
+            # should be initialized by init_artwork_gen_state(), skip instead of crashing
+            logger.warning(f'Artwork progress state is missing, skip phase [{phase_name}]')
+            return
         progress['phase'] = phase_name
         progress['phase_total'] = len(items)
         progress['phase_processed'] = 0

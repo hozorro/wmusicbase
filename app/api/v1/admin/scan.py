@@ -10,6 +10,7 @@
 
 
 import json, asyncio
+from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from fastapi.responses import StreamingResponse
 from app.core.state import system_state
@@ -26,7 +27,7 @@ from app.schemas.sysinfo import ScanFolder
 
 router = APIRouter()
 
-async def run_scan_task(root_path: str, is_incremental: bool = False):
+async def run_scan_task(root_path: Path, is_incremental: bool = False):
     if system_state.is_scanning:
         return
     scanner = Scanner(root_path, is_incremental)

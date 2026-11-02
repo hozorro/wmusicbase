@@ -36,18 +36,18 @@ class AlbumDetail(AlbumBase):
 
     @model_validator(mode='before')
     @classmethod
-    def artists(cls, data: Any) -> list[ArtistBase]:
+    def build_artists(cls, data: Any) -> Any:
+        '''collect the album artists from its tracks(duplicates removed)'''
         artists_dict = {}
         if hasattr(data, 'tracks'):
             for track in data.tracks:
                 for artist in track.artists:
                     artists_dict[artist.id] = artist
             data.artists = list(artists_dict.values())
-        if isinstance(data, dict):
-            if 'tracks' in data:
-                for track in data['tracks']:
-                    for artist in track['artists']:
-                        artists_dict[artist['id']] = artist
+        elif isinstance(data, dict) and 'tracks' in data:
+            for track in data['tracks']:
+                for artist in track['artists']:
+                    artists_dict[artist['id']] = artist
             data['artists'] = list(artists_dict.values())
         return data
         

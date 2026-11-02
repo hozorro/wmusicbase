@@ -9,7 +9,7 @@
 '''
 
 
-import aiofiles, requests
+import asyncio
 from datetime import datetime
 from fastapi import Request, status
 from sqlalchemy import select, func, desc, nulls_last
@@ -18,6 +18,7 @@ from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, track_artists, track_genres, Artist, Album, TrackFav, TrackHit, PlaylistTrack
+from app.services.lyric_index_service import read_lyric_file
 from app.utils.audiofile import AudioMeta
 from app.utils.streaming import signer
 
@@ -53,7 +54,7 @@ class TrackService:
             track.cover_art_hash = new_hash
             await self.db.commit()
 
-    async def update_tracks_field_tag(self, track_ids: list[int], field: str, value: str | int | list[str]) -> list[str]:
+    async def update_tracks_field_tag(self, track_ids: list[int], field: str, value: str | int | list[str]) -> list[dict]:
         '''update track field tag, used for batch editing'''
         tracks = await self.db.execute(select(Track).where(Track.id.in_(track_ids)))
         track_paths = [track.path for track in tracks.scalars()]
@@ -61,7 +62,7 @@ class TrackService:
         for track_path in track_paths:
             try:
                 track_path_abs = str((self.settings.MUSIC_LIBRARY_PATH / track_path).resolve())
-                self._update_track_file_tag(track_path_abs, {field: value})
+                await self._update_track_file_tag(track_path_abs, {field: value})
             except Exception as e:
                 errors.append({
                     'track_path': track_path,
@@ -137,7 +138,7 @@ class TrackService:
             return None
         return track
     
-    async def get_random_tracks(self, limit: int = 20) -> list[Track]:
+    async def get_random_tracks(self, limit: int = 20):
         '''get random tracks'''
         stmt = (
             select(Track)
@@ -154,7 +155,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_artist_random_tracks(self, artist_id: int, limit: int = 20) -> list[Track]:
+    async def get_artist_random_tracks(self, artist_id: int, limit: int = 20):
         '''get random tracks of an artist'''
         stmt = (
             select(Track).options(
@@ -171,7 +172,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_genre_random_tracks(self, genre_id: int, limit: int = 20) -> list[Track]:
+    async def get_genre_random_tracks(self, genre_id: int, limit: int = 20):
         '''get random tracks of an genre'''
         stmt = (
             select(Track).options(
@@ -188,7 +189,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_favorite_tracks(self, limit: int = 100) -> list[Track]:
+    async def get_favorite_tracks(self, limit: int = 100):
         '''get user favorite tracks'''
         stmt = (
             select(Track)
@@ -206,7 +207,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
 
-    async def get_favorite_ids(self, limit: int = 100) -> list[int]:
+    async def get_favorite_ids(self, limit: int = 100):
         '''get user favorite track ids'''
         stmt = (
             select(TrackFav.track_id)
@@ -218,7 +219,7 @@ class TrackService:
         track_ids = result.scalars().all()
         return track_ids
     
-    async def get_most_played_tracks(self, limit: int | None = 12) -> list[Track]:
+    async def get_most_played_tracks(self, limit: int | None = 12):
         '''get user most played tracks'''
         hit_count_subq = (
             select(
@@ -248,7 +249,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_latest_added_tracks(self, num: int = 12) -> list[Track]:
+    async def get_latest_added_tracks(self, num: int = 12):
         '''get latest added tracks'''
         stmt = (
             select(Track)
@@ -265,7 +266,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_album_tracks(self, album_id: int) -> list[Track]:
+    async def _get_album_tracks(self, album_id: int):
         '''get album tracks'''
         result = await self.db.execute(
             select(Track)
@@ -281,7 +282,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_artist_tracks(self, artist_id: int) -> list[Track]:
+    async def _get_artist_tracks(self, artist_id: int):
         '''get artist tracks'''
         result = await self.db.execute(
             select(Track)
@@ -298,7 +299,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_genre_tracks(self, genre_id: int) -> list[Track]:
+    async def _get_genre_tracks(self, genre_id: int):
         '''get genre tracks'''
         result = await self.db.execute(
             select(Track)
@@ -315,7 +316,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_playlist_tracks(self, playlist_id: int) -> list[Track]:
+    async def _get_playlist_tracks(self, playlist_id: int):
         '''get playlist tracks'''
         result = await self.db.execute(
             select(Track)
@@ -332,7 +333,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def _get_folder_tracks(self, folder_id: int) -> list[Track]:
+    async def _get_folder_tracks(self, folder_id: int):
         '''get folder tracks'''
         result = await self.db.execute(
             select(Track)
@@ -348,7 +349,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_collection_tracks(self, collection_type: str, collection_id: int) -> list[Track]:
+    async def get_collection_tracks(self, collection_type: str, collection_id: int):
         '''get collection tracks, collection can be album/artist/genre'''
         if collection_type == 'album':
             return await self._get_album_tracks(collection_id)
@@ -363,111 +364,23 @@ class TrackService:
         else:
             return []
 
-    @staticmethod
-    def _is_valid_lyric(text: str) -> bool:
+    async def get_lyric(self, track_id: int) -> str:
+        '''lyric text of a track, read from the .lrc file next to the audio file
+
+        an empty string means the track has no lyric yet. fetching is owned by
+        the lyric index pipeline (lyrics table + fetcher), never done on demand
+        here, so the disk file and the indexed row can not drift apart.
         '''
-        check if lyric content is valid
-        valid lyric should have timestamp lines like [00:00.00] or metadata tags like [ar:...]
-        invalid content includes error messages, empty lines, or non-lyric text
-        '''
-        if not text or not text.strip():
-            return False
-    
-        # common invalid patterns
-        invalid_patterns = [
-            r'^Lyrics not found\.?$',
-            r'^No lyrics available\.?$',
-            r'^暂无歌词$',
-            r'^未找到歌词$',
-            r'^error',
-            r'^failed',
-            r'^404',
-            r'^<!DOCTYPE',
-            r'^<html',
-            r'^{"error',
-        ]
-        
-        text_stripped = text.strip()
-        for pattern in invalid_patterns:
-            if re.search(pattern, text_stripped, re.IGNORECASE):
-                return False
-        
-        # valid lyric should have at least one timestamp line [mm:ss.xx]
-        timestamp_pattern = r'\[\d{2}:\d{2}\.\d{2,3}\]'
-        if re.search(timestamp_pattern, text):
-            return True
-        
-        # or have metadata tags like [ar:Artist], [ti:Title], etc.
-        metadata_pattern = r'\[(ar|ti|al|by|offset|version):[^\]]+\]'
-        if re.search(metadata_pattern, text, re.IGNORECASE):
-            return True
-    
-        # no timestamp and no metadata, likely invalid
-        return False
-        
-    async def get_lyric(self, track_id: int) -> str | None:
-        result = await self.db.execute(
-            select(Track)
-            .options(
-                load_only(Track.title, Track.path),
-                selectinload(Track.artists).load_only(Artist.name),
-            )
-            .where(Track.id == track_id)
-        )
-        track = result.scalar_one_or_none()
-        if not track: return None
-        
-        # first lookup the lyric file with the same name as the track in the track directory
-        track_path = (self.settings.MUSIC_LIBRARY_PATH / track.path).resolve()
-        lyric_path = track_path.with_suffix('.lrc')
-        if lyric_path.exists(): 
-            async with aiofiles.open(lyric_path, mode='r', encoding='utf-8') as f:
-                return await f.read()
-        else:
-            # then request the lyric from the lyric server
-            params = {'title': track.title, 'artist': track.artists[0].name}
-            try:
-                res = requests.get(
-                    self.settings.LYRIC_OUT_BASE_URL + 'single', 
-                    params=params,
-                    headers={
-                        'Content-Type': 'text/plain',
-                        'Authorization': self.settings.LYRIC_OUT_API_KEY,
-                    },
-                    timeout=10
-                )
-                text = res.text
-                # save the lyric file to the track directory with the same name as the track
-                if text and self._is_valid_lyric(text):
-                    async with aiofiles.open(lyric_path, mode='w', encoding='utf-8') as f:
-                        await f.write(text)
-                    return text
-                else:
-                    return None
-            except requests.exceptions.RequestException as err: 
-                logger.error(f'get lyric error: {str(err)}')
-                return None
-            except IOError:
-                logger.error(f'save lyric file error: {lyric_path}')
-                return None
-            except Exception as e:
-                logger.error(f'get lyric error: {e}')
-                return None
-            
-    async def delete_lyric(self, track_id: int) -> None:
-        track = await self.db.get(Track, track_id)
-        if not track: return
-        lyric_path = (self.settings.MUSIC_LIBRARY_PATH / track.path).with_suffix('.lrc')
-        try:
-            if lyric_path.exists(): 
-                lyric_path.unlink()
-        except Exception as e:
-            logger.error(f'delete lyric {lyric_path} error: {e}')
-            raise BusinessException(
-                code=30306, 
-                msg='delete lyric error', 
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            )
+        track_path = (await self.db.execute(
+            select(Track.path).where(Track.id == track_id)
+        )).scalar_one_or_none()
+        if track_path is None:
+            return ''
+
+        lyric_path = (self.settings.MUSIC_LIBRARY_PATH / track_path).with_suffix('.lrc')
+        if not await asyncio.to_thread(lyric_path.exists):
+            return ''
+        return await asyncio.to_thread(read_lyric_file, lyric_path) or ''
 
     async def get_tracks_hit_time(self) -> list[datetime]:
         result = await self.db.execute(

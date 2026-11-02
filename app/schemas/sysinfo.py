@@ -102,8 +102,8 @@ class MetaItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     model_name: Literal['track', 'artist', 'album', 'folder', 'genre', 'playlist', 'trackhit', 'trackfav', 'artistfav', 'playlisthit']
-    total_count: int = Field(0, ge=0, description='entity count')
-    last_update: datetime | None = Field(None, description='last updated time')
+    total_count: int = Field(default=0, ge=0, description='entity count')
+    last_update: datetime | None = Field(default=None, description='last updated time')
 
 # endregion frontend
 

@@ -17,13 +17,25 @@ Usage:
 
 
 import asyncio
+import sys
 import typer
 from pathlib import Path
 from sqlalchemy import select
 from app.core.config import settings
-from app.core.db import async_session
+from app.core.db import AsyncSessionLocal
 from app.models import Artist, Album, Track, Playlist
 from app.services.artwork_service import ArtworkService
+
+# when stdout is redirected(piped or written to a file), python falls back to the
+# locale encoding, which on zh-CN windows is gbk and cannot encode the emoji printed
+# below; replace instead of crashing, the interactive console is not affected
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, 'reconfigure', None)
+    if _reconfigure is not None:
+        try:
+            _reconfigure(errors='replace')
+        except (ValueError, OSError):
+            pass
 
 app = typer.Typer(help='Pre-generate all artwork static files')
 
@@ -175,7 +187,7 @@ class ArtworkGenerator:
                     else:
                         self.stats['playlist']['generated'] += 1
                 except Exception as e:
-                    print(f'  ❌ Failed to generate artwork for playlist {playlist.id} ({playlist.name}): {e}')
+                    print(f'  ❌ Failed to generate artwork for playlist {playlist.id} ({playlist.title}): {e}')
                     self.stats['playlist']['failed'] += 1
     
     def print_stats(self):
@@ -212,7 +224,7 @@ async def run_generation(dry_run: bool = False, art_type: str | None = None):
     
     generator = ArtworkGenerator(dry_run=dry_run)
     
-    async with async_session() as db:
+    async with AsyncSessionLocal() as db:
         service = ArtworkService(db, settings)
         
         if art_type is None or art_type == 'artist':
@@ -240,7 +252,7 @@ async def run_generation(dry_run: bool = False, art_type: str | None = None):
 @app.command()
 def generate(
     dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Preview only, do not generate files'),
-    art_type: str = typer.Option(None, '--type', '-t', help='Generate only specific type: artist, album, track, playlist'),
+    art_type: str | None = typer.Option(None, '--type', '-t', help='Generate only specific type: artist, album, track, playlist'),
 ):
     '''Pre-generate all artwork static files'''
     if art_type and art_type not in ['artist', 'album', 'track', 'playlist']:

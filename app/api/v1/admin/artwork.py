@@ -59,8 +59,8 @@ async def artwork_progress_generator(request: Request):
 
 @router.post('/start', response_model=ResponseModel[None])
 async def start_artwork_generation(
+    background_tasks: BackgroundTasks,
     data: ArtworkGenRequest | None = None,
-    background_tasks: BackgroundTasks = None,
     current_user: CurrentUser = Depends(require_admin)
 ):
     '''

@@ -20,7 +20,7 @@ from app.models.album import Album
 from app.models.track import Track, track_artists
 from app.models.playback import TrackHit, ArtistFav
 from app.schemas.common import ArtistPrimary
-from app.services.artwork_service import ArtworkService
+from app.services.artwork_service import ArtworkService, ArtType
 from app.utils.pinyin import get_artist_sort_fields, get_initial_group
 
 class ArtistService:
@@ -34,10 +34,10 @@ class ArtistService:
         result = await self.db.execute(select(Artist.pinyin_initial).distinct().order_by(Artist.pinyin_initial))
         list_chars = [char for char, in result.all()]
         chars = [chr(char) for char in range(ord('A'), ord('Z')+1)] + ['_']
-        start_chars = list(map(lambda x: (x, True) if x in list_chars else (x, False), chars))
+        start_chars: list[tuple[str, bool]] = [(x, x in list_chars) for x in chars]
         return start_chars
     
-    async def get_start_char_artists(self, start_char: str) -> list[dict]:
+    async def get_start_char_artists(self, start_char: str) -> list[Artist]:
         result = await self.db.execute(
             select(Artist)
             .filter(Artist.pinyin_initial == start_char)
@@ -46,7 +46,7 @@ class ArtistService:
                 load_only(Artist.id, Artist.name, Artist.pinyin_initial, Artist.face_art_hash, Artist.portrait_art_hash)
             )
         )
-        artists = result.scalars().all()
+        artists = list(result.scalars().all())
         return artists
     
     async def get_artists_by_page(self, page: int = 1, page_size: int = 20) -> tuple[int, list[Artist]]:
@@ -63,7 +63,7 @@ class ArtistService:
                 load_only(Artist.id, Artist.name, Artist.created_at)
             )
         )
-        artists = result.scalars().all()
+        artists = list(result.scalars().all())
         return total, artists
     
     async def _get_artist_albums_separated(self, artist_id: int) -> tuple[list[Album], list[Album]]:
@@ -101,7 +101,8 @@ class ArtistService:
         result = await self.db.execute(select(subq))
         for row in result:
             album = Album(id=row.id, title=row.title, cover_art_hash=row.cover_art_hash)
-            album.track_count = row.track_count
+            # transient attribute(no such column on Album), only used by AlbumBase serialization
+            setattr(album, 'track_count', row.track_count)
             if row.album_type == 'main':
                 main_albums.append(album)
             else:
@@ -143,7 +144,7 @@ class ArtistService:
             )
         )
         result = await self.db.execute(main_stmt)
-        tracks = result.scalars().all()
+        tracks = list(result.scalars().all())
         return tracks
     
     # endregion common use
@@ -210,7 +211,7 @@ class ArtistService:
             )
         )
         result = await self.db.execute(stmt)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def cleanup_orphan_artists(self, artist_ids: list[int]) -> tuple[list[Artist], list[int]]:
         '''
@@ -236,7 +237,7 @@ class ArtistService:
                     select(func.count(track_artists.c.track_id))
                     .where(track_artists.c.artist_id == artist_id)
                 )
-                if track_count > 0:
+                if (track_count or 0) > 0:
                     failed_ids.append(artist_id)
                     continue
 
@@ -245,14 +246,14 @@ class ArtistService:
                     select(func.count(Album.id))
                     .where(Album.album_artist_id == artist_id)
                 )
-                if album_count > 0:
+                if (album_count or 0) > 0:
                     failed_ids.append(artist_id)
                     continue
 
                 # delete artwork files
                 artwork_service = ArtworkService(self.db, self.settings)
-                artwork_service.invalidate_artwork_cache(artist_id, 'artist', 'face')
-                artwork_service.invalidate_artwork_cache(artist_id, 'artist', 'portrait')
+                artwork_service.invalidate_artwork_cache(artist_id, ArtType.ARTIST, 'face')
+                artwork_service.invalidate_artwork_cache(artist_id, ArtType.ARTIST, 'portrait')
 
                 # delete artist record
                 await self.db.delete(artist)
@@ -288,13 +289,19 @@ class ArtistService:
         )
         # get top 20 tracks of the artist
         top_tracks = await self._get_top_tracks(artist_id, top_count)
-        artist.main_albums = main_albums
-        artist.track_albums = track_albums
-        artist.track_count = track_count
-        artist.top_tracks = top_tracks
-        return artist
+        return {
+            'id': artist.id,
+            'name': artist.name,
+            'face_art_hash': artist.face_art_hash,
+            'portrait_art_hash': artist.portrait_art_hash,
+            'pinyin_initial': artist.pinyin_initial,
+            'main_albums': main_albums,
+            'track_albums': track_albums,
+            'track_count': track_count or 0,
+            'top_tracks': top_tracks,
+        }
         
-    async def get_ten_artists(self, user_id: int = 1) -> list[dict]:
+    async def get_ten_artists(self, user_id: int = 1) -> list[Artist]:
         '''get 10 artists, including 6 most played artists and 4 random artists'''
         stmt = (
             select(Artist)
@@ -313,14 +320,18 @@ class ArtistService:
         result_6 = await self.db.execute(stmt)
         top_artists = result_6.scalars().all()
 
-        # get 4 random artists
+        # get 4 random artists, excluding the ones already picked above
         real_top_artists_num = len(top_artists) # handle the case that most played artists number is less than 6
-        result_4 = await self.db.execute(select(Artist).order_by(func.random()).limit(10 - real_top_artists_num))
+        random_stmt = select(Artist).order_by(func.random()).limit(10 - real_top_artists_num)
+        top_ids = [a.id for a in top_artists]
+        if top_ids:
+            random_stmt = random_stmt.where(Artist.id.notin_(top_ids))
+        result_4 = await self.db.execute(random_stmt)
         random_artists = result_4.scalars().all()
 
-        return top_artists + random_artists
+        return list(top_artists) + list(random_artists)
     
-    async def get_favorited_artists(self) -> list[dict]:
+    async def get_favorited_artists(self) -> list[Artist]:
         '''get favorited artists'''
         stmt = (
             select(Artist)
@@ -331,6 +342,6 @@ class ArtistService:
             )
         )
         result = await self.db.execute(stmt)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     # endregion frontend use

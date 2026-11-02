@@ -29,8 +29,6 @@ class ArtistArtUpdate(BaseModel):
     art_type: str
 
 class ArtistResponse(ArtistBase):
-    face_art_hash: str | None
-    portrait_art_hash: str | None
     main_albums: list[AlbumBase]
     track_albums: list[AlbumBase]
 
@@ -63,14 +61,14 @@ class ArtistArtFetchRequest(BaseModel):
 
 class ArtistArtFetchResponse(BaseModel):
     '''fetch artist art response'''
-    face_temp_id: str | None = Field(None, description='Temp ID for face image')
-    portrait_temp_id: str | None = Field(None, description='Temp ID for portrait image')
-    face_url: str | None = Field(None, description='Face image URL for preview')
-    portrait_url: str | None = Field(None, description='Portrait image URL for preview')
+    face_temp_id: str | None = Field(default=None, description='Temp ID for face image')
+    portrait_temp_id: str | None = Field(default=None, description='Temp ID for portrait image')
+    face_url: str | None = Field(default=None, description='Face image URL for preview')
+    portrait_url: str | None = Field(default=None, description='Portrait image URL for preview')
 
 class ArtistArtConfirmRequest(BaseModel):
     '''confirm artist art request'''
     artist_id: int = Field(..., description='Artist ID')
     art_type: str = Field(..., description='Art type: face or portrait')
     temp_id: str = Field(..., description='Temp ID from fetch response')
-    set_directly: bool = Field(False, description='When True, immediately promote the saved image to the artist current artwork (position _1)')
+    set_directly: bool = Field(default=False, description='When True, immediately promote the saved image to the artist current artwork (position _1)')

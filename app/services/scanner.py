@@ -37,17 +37,15 @@ class Scanner:
         '''
         try:
             meta = read_metadata(file_path)
+            if meta is None:
+                raise ValueError(f'No metadata readable from {file_path}')
             meta.update({"path": str(file_path)})
-            # file_fp = compute_file_hash(file_path)
-            # meta.update({
-            #     "fingerprint": file_fp[0],
-            #     "size": file_fp[1],
-            #     "mtime": file_fp[2]
-            # })
             await self.queue.put(ParsedMeta.model_validate(meta))
-        except Exception:
-            logger.error(f"Failed to parse metadata for file {file_path}")
-            system_state.scan_progress['failed'] += 1
+        except Exception as e:
+            logger.error(f"Failed to parse metadata for file {file_path}: {e}")
+            progress = system_state.scan_progress
+            if progress is not None:
+                progress['failed'] += 1
         
     async def count_files(self):
         count = 0
@@ -66,7 +64,10 @@ class Scanner:
         producer: scan folder, parse file, put into queue
         '''
         logger.info("Start scanning files...")
-        system_state.scan_progress['total'] = await self.count_files()
+        total = await self.count_files()
+        progress = system_state.scan_progress
+        if progress is not None:
+            progress['total'] = total
         tasks = []
         try:
             for file_path in self.iter_files():
@@ -107,7 +108,9 @@ class Scanner:
                     self.queue.task_done()
                     break
 
-                system_state.scan_progress['current_file'] = str(Path(meta.path).relative_to(self.root_path))
+                progress = system_state.scan_progress
+                if progress is not None:
+                    progress['current_file'] = str(Path(meta.path).relative_to(self.root_path))
                 
                 if system_state.is_scanning_canceled:
                     # not break immediately, use continue to skip processing and db writing
@@ -125,9 +128,13 @@ class Scanner:
                         await processor.commit_pending_tracks()
                 except Exception as e:
                     logger.error(f"Error processing file {meta.path}: {e}")
-                    system_state.scan_progress['failed'] += 1
+                    progress = system_state.scan_progress
+                    if progress is not None:
+                        progress['failed'] += 1
                 finally:
-                    system_state.scan_progress['processed'] += 1
+                    progress = system_state.scan_progress
+                    if progress is not None:
+                        progress['processed'] += 1
                     self.queue.task_done()
 
     async def run(self):

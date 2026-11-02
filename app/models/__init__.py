@@ -39,6 +39,7 @@ class DateTimeMixin:
 
 from .folder import Folder
 from .track import Track, track_artists, track_genres
+from .lyric import Lyric
 from .artist import Artist
 from .album import Album
 from .genre import Genre
@@ -50,6 +51,7 @@ __all__ = [
     "Track",
     "track_artists",
     "track_genres",
+    "Lyric",
     "Artist",
     "Album",
     "Genre",

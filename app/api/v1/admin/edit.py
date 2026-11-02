@@ -74,15 +74,15 @@ async def get_album(album_id: int, service: AlbumService = Depends(AlbumService)
 
 @router.post('/uploadartistart', response_model=ResponseModel[ArtistArtUpdate], tags=['edit'])
 async def upload_artist_art(item: ArtistArtCreate = Depends(artist_art_upload_from_form), service: ArtworkService = Depends(ArtworkService)):
-    if item.file.content_type not in ['image/jpeg', 'image/png']:
+    if item.art.content_type not in ['image/jpeg', 'image/png']:
         raise BusinessException(
             code=60115, 
             msg='only jpg and png files are allowed', 
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
         )
     try:
-        await service.save_uploaded_artist_image(item.id, item.art_type, item.file)
-        await item.file.close()
+        await service.save_uploaded_artist_image(item.id, item.art_type, item.art)
+        await item.art.close()
     except Exception as e:
         raise BusinessException(
             code=60106, 

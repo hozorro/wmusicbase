@@ -37,6 +37,6 @@ async def get_favorited_artists(service: ArtistService = Depends(ArtistService))
     return ResponseModel(data=[ArtistBase.model_validate(a) for a in artists])
 
 @router.get('/{artist_id}', response_model=ResponseModel[ArtistDetailResponse])
-async def get_artist(artist_id: int, top: int | None = 20, service: ArtistService = Depends(ArtistService)):
+async def get_artist(artist_id: int, top: int = 20, service: ArtistService = Depends(ArtistService)):
     artist = await service.get_artist_detail(artist_id, top)
     return ResponseModel(data=ArtistDetailResponse.model_validate(artist))

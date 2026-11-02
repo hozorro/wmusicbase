@@ -52,6 +52,13 @@ async def create_playlist_from_json(filename: str, service: PlaylistService = De
 async def backup_playlist(playlist_id: int, service: PlaylistService = Depends(PlaylistService)):
     try:
         data = await service.get_playlist_data(playlist_id)
+        if data is None:
+            raise BusinessException(
+                code=70507, 
+                msg=f'playlist not exists: {playlist_id}', 
+                detail={'playlist_id': playlist_id}, 
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         json_string = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
         json_bytes = json_string.encode('utf-8')
         
@@ -66,6 +73,9 @@ async def backup_playlist(playlist_id: int, service: PlaylistService = Depends(P
                 'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
             }
         )
+    except BusinessException:
+        # the 404 built above must not be swallowed by the generic handler below
+        raise
     except Exception as e:
         raise BusinessException(
             code=70501, 

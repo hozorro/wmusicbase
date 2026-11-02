@@ -34,7 +34,7 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> 
     to_encode.update({"exp": expire, "type": "refresh"})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm='HS256')
 
-def verify_token(token: str) -> dict:
+def verify_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
         return payload

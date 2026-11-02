@@ -9,19 +9,33 @@
 '''
 
 
-import requests, time
+import requests
+from collections.abc import MutableMapping
+from typing import cast
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from cachetools import TTLCache
-from threading import Lock
+from threading import Lock, Event
 from PIL import Image
 from io import BytesIO
 from app.core.config import settings
 from app.core.logger import logger
 
-cover_cache = TTLCache(maxsize=settings.CACHE_MAX, ttl=settings.CACHE_EXPIRE)
+# safety net only: a single fetch is bounded by the (3, 8) requests timeouts, waiters
+# should practically always be woken up by the owner thread
+_PENDING_WAIT_SECONDS = 15.0
+
+# typed cache: fetches that return None(no cover found) are cached on purpose, so the
+# value type must stay Optional. cast is used because TTLCache is not generic at
+# runtime(cachetools 5.x).
+cover_cache: MutableMapping[str, bytes | None] = cast(
+    MutableMapping[str, bytes | None],
+    TTLCache(maxsize=settings.CACHE_MAX, ttl=settings.CACHE_EXPIRE)
+)
+# guards cover_cache and _pending_events only, never held during network io
 debounce_lock = Lock()
-debounce_pending: dict[str, tuple[bool, bytes | None]] = {}
+# release_id -> event, set by the owner thread once the result is published
+_pending_events: dict[str, Event] = {}
 
 def get_requests_session() -> requests.Session:
     session = requests.Session()
@@ -57,37 +71,53 @@ def fetch_cover_art(release_id: str) -> bytes | None:
         logger.error(f'Failed to fetch cover art for release {release_id}: {e}')
     return cover_data
 
-def get_cover_art(release_id: str) -> bytes | None:
-    if release_id in cover_cache:
-        return cover_cache[release_id]
-    
-    with debounce_lock:
-        if release_id in debounce_pending:
-            pending, data = debounce_pending[release_id]
-            wait_start = time.time()
-            while pending and (time.time() - wait_start < 5):
-                time.sleep(0.01)
-                pending, data = debounce_pending[release_id]
-            if data:
-                cover_cache[release_id] = data
-                del debounce_pending[release_id]
-                return data
-        debounce_pending[release_id] = (True, None)
-
+def _fetch_and_cache(release_id: str) -> bytes | None:
+    '''fetch cover art and publish the result into the cache'''
     cover_data = fetch_cover_art(release_id)
     with debounce_lock:
-        debounce_pending[release_id] = (True, cover_data)
         cover_cache[release_id] = cover_data
-        time.sleep(0.1)
-        if release_id in debounce_pending:
-            del debounce_pending[release_id]
-
     return cover_data
+
+def get_cover_art(release_id: str) -> bytes | None:
+    '''get cover art, concurrent requests for one release share a single fetch'''
+    with debounce_lock:
+        if release_id in cover_cache:
+            return cover_cache[release_id]
+        event = _pending_events.get(release_id)
+        is_owner = event is None
+        if is_owner:
+            event = Event()
+            _pending_events[release_id] = event
+
+    if not is_owner:
+        # another thread owns the fetch: wait for it outside the lock, so the owner can
+        # still publish its result while we are waiting
+        if event.wait(timeout=_PENDING_WAIT_SECONDS):
+            with debounce_lock:
+                return cover_cache.get(release_id)
+        logger.warning(f'In-flight cover art fetch timed out, fetching directly: {release_id}')
+
+    try:
+        return _fetch_and_cache(release_id)
+    finally:
+        # only the owner unregisters its own event and wakes the waiters up
+        if is_owner:
+            with debounce_lock:
+                _pending_events.pop(release_id, None)
+            event.set()
+
 def clear_cached_cover(release_id: str):
     with debounce_lock:
-        debounce_pending.pop(release_id, None)
+        event = _pending_events.pop(release_id, None)
         cover_cache.pop(release_id, None)
+    if event is not None:
+        # release the threads waiting for this release, they will re-check the cache
+        event.set()
+
 def clear_cover_cache():
     with debounce_lock:
-        debounce_pending.clear()
+        events = list(_pending_events.values())
+        _pending_events.clear()
         cover_cache.clear()
+    for event in events:
+        event.set()

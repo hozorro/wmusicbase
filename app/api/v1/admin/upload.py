@@ -40,7 +40,14 @@ async def upload_file(file: UploadFile, name: Annotated[str | None, Form()] = No
         filename = name
     else:
         filename = file.filename
-    _ = await service.save_temp_file(content, filename)
+    if not filename:
+        # client may omit both the form field and the multipart filename
+        raise BusinessException(
+            code=70310, 
+            msg='filename is required when uploading file', 
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
+    await service.save_temp_file(content, filename)
     await file.close()
     return ResponseModel(data=FileBase(filename=filename))
 
@@ -245,7 +252,7 @@ async def delete_staging_files(session_id: str, input: DeleteStagingFiles, servi
 async def archive_session_route(
     session_id: str,
     input: CreateArchive,
-    lang: str | None = 'CN', 
+    lang: str = 'CN', 
     service: ArchiveService = Depends(ArchiveService),
 ):
     errors = await service.archive_session(session_id, input.items, lang, input.is_use_original_name, input.playlist)

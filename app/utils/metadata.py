@@ -11,8 +11,9 @@
 
 import hashlib
 from pathlib import Path
-from mutagen import File as MutagenFile
-from mutagen.id3 import ID3, TIT2, TALB, TPE1, TPE2, TDRC, TCON, TXXX, UFID, APIC
+from mutagen import File as MutagenFile  # pyright: ignore[reportPrivateImportUsage]
+from mutagen.id3 import ID3, TIT2, TALB, TPE1, TPE2, TDRC, TCON, TXXX, UFID, APIC  # pyright: ignore[reportPrivateImportUsage]
+from mutagen.apev2 import APEv2
 from mutagen.flac import FLAC, Picture
 from .common import parse_year
 from .encoding import (
@@ -41,14 +42,6 @@ tag_mapping ={
     'UFID:http://musicbrainz.org': 'mb_trackid',
     'TXXX:Acoustid Id': 'acoustid_id'
 }
-
-def compute_file_hash(file_path: str | Path) -> str:
-    '''compute file hash'''
-    stat = Path(file_path).stat()
-    size = stat.st_size
-    mtime = int(stat.st_mtime)
-    raw = f'{str(file_path)}{size}{mtime}'.encode('utf-8')
-    return hashlib.sha256(raw).hexdigest(), size, mtime
 
 def decode_tag_value(raw_value: Any, encoding: int, reference: str | None = None, forced: str | None = None) -> str:
     '''
@@ -172,7 +165,7 @@ def parse_metadata(file_path: str | Path, prefer_apev2: bool = True) -> dict[str
         if audio and audio.info:
             result['duration'] = getattr(audio.info, 'length', 0.0)
             result['bitrate'] =getattr(audio.info, 'bitrate', 0) // 1000
-            result['bitrate_mode'] = BITRATE_MODES.get(getattr(audio.info, 'bitrate_mode', '').__str__(), '')
+            result['bitrate_mode'] = BITRATE_MODES.get(int(getattr(audio.info, 'bitrate_mode', 0)), '')
         # 2. extract raw ID3 tags, including text and encoding
         id3_tags = ID3(file_path)
     except Exception as e:
@@ -207,9 +200,10 @@ def parse_metadata(file_path: str | Path, prefer_apev2: bool = True) -> dict[str
         if id3_tag_name not in id3_tags:
             continue
         
-        tag_obj = id3_tags.get(id3_tag_name)
+        tag_obj = id3_tags[id3_tag_name]
         if id3_tag_name == 'UFID:http://musicbrainz.org':
-            result[target_field] = getattr(tag_obj, 'data', '').decode('utf-8', errors='ignore')
+            ufid_data = getattr(tag_obj, 'data', None)
+            result[target_field] = ufid_data.decode('utf-8', errors='ignore') if isinstance(ufid_data, bytes) else ''
         else:
             raw_text_list = getattr(tag_obj, 'text', []) # raw data is always a list
             if not raw_text_list:
@@ -283,19 +277,19 @@ def easy_metadata(file_path: Path | str) -> dict[str, Any] | None:
         
         title = _get_first(audio.get('title', ['']))
         if not title:
-            title = file_path.stem # use file name as title if no title tag
+            title = Path(file_path).stem # use file name as title if no title tag
         
         artists = _get_list('artist')
-        mb_artistids = _get_list('musicbrainz_artistid')
+        mb_artistids: list[str | None] = [*_get_list('musicbrainz_artistid')]
         if len(mb_artistids) < len(artists):
             mb_artistids.extend([None] * (len(artists) - len(mb_artistids)))
         
         albumartist = _get_list('albumartist')
-        mb_albumartistid = _get_list('musicbrainz_albumartistid')
+        mb_albumartistid: list[str | None] = [*_get_list('musicbrainz_albumartistid')]
         if len(mb_albumartistid) < len(albumartist):
             mb_albumartistid.extend([None] * (len(albumartist) - len(mb_albumartistid)))
         
-        bitrate_mode = BITRATE_MODES.get(getattr(audio.info, 'bitrate_mode', None), None)
+        bitrate_mode = BITRATE_MODES.get(int(getattr(audio.info, 'bitrate_mode', 0)), '')
 
         return {
             'title': title,
@@ -426,6 +420,8 @@ def extract_cover_art_hash(file_path: Path) -> str | None:
     '''only compute the SHA1 value of the embedded cover art, not return image data'''
     try:
         audio = MutagenFile(file_path)
+        if audio is None:
+            return None
         
         # handle mp3 file
         if hasattr(audio, 'tags') and hasattr(audio.tags, 'keys'):
@@ -443,6 +439,8 @@ def extract_embedded_artwork(file_path: str) -> bytes | None:
     '''extract the first embedded artwork bytes data from audio file'''
     try:
         audio = MutagenFile(file_path)
+        if audio is None:
+            return None
         if hasattr(audio, 'tags') and hasattr(audio.tags, 'keys'):
             apic_keys = [key for key in audio.tags.keys() if key.startswith('APIC:')]
             if apic_keys:
@@ -453,15 +451,3 @@ def extract_embedded_artwork(file_path: str) -> bytes | None:
         print(f'Error extracting embedded artwork from {file_path}: {e}')
         raise Exception(f'Failed to extract cover art from {file_path}: {e}')
     return None
-
-def download_cover_art(release_id) -> bytes | None:
-    '''download cover art from coverartarchive.org'''
-    import requests
-    from app.core.config import settings
-    cover_art_url = f'{settings.PROXY_API_URL}/cover/{release_id}?api_key={settings.PROXY_API_KEY}'
-    try:
-        resp = requests.get(cover_art_url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
-        resp.raise_for_status()
-        return resp.content
-    except Exception:
-        return None

@@ -26,8 +26,8 @@ class Settings(BaseSettings):
         extra='ignore',
     )
     # ============ app config =============
-    APP_NAME: str = Field('WMusicBase', description='app name')
-    DEBUG: bool = Field(False, description='is debug mode(MUST be turned off in production)')
+    APP_NAME: str = Field(default='WMusicBase', description='app name')
+    DEBUG: bool = Field(default=False, description='is debug mode(MUST be turned off in production)')
 
     # ============ server config ==========
     HOST: str = '127.0.0.1'
@@ -35,12 +35,12 @@ class Settings(BaseSettings):
 
     # =========== database config ===========
     # PostgreSQL database URL（can be joined by vars, or set url directly）
-    DB_USER: str = Field(..., description='database username')
-    DB_PASSWORD: str = Field(..., description='database password')
-    DB_HOST: str = Field('localhost', description='database host')
-    DB_PORT: int = Field(5432, description='database port')
-    DB_NAME: str = Field(..., description='database name')
-    DATABASE_URL: Optional[PostgresDsn] = Field(None, description='database connection URL')
+    DB_USER: str = Field(default=..., description='database username')
+    DB_PASSWORD: str = Field(default=..., description='database password')
+    DB_HOST: str = Field(default='localhost', description='database host')
+    DB_PORT: int = Field(default=5432, description='database port')
+    DB_NAME: str = Field(default=..., description='database name')
+    DATABASE_URL: Optional[PostgresDsn] = Field(default=None, description='database connection URL')
     
     @field_validator('DATABASE_URL', mode='before')
     @classmethod
@@ -48,8 +48,8 @@ class Settings(BaseSettings):
         if v is not None and  isinstance(v, (str, PostgresDsn)):
             return v
         
-        data = info.data
-        required_fields = ['DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT', 'DB_NAME']
+        data: dict[str, Any] = info.data
+        required_fields: list[str] = ['DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT', 'DB_NAME']
         for field in required_fields:
             if field not in data or data[field] is None:
                 raise ValueError(f'Database configuration error: {field} is required')
@@ -65,15 +65,15 @@ class Settings(BaseSettings):
     # DATABASE_URL: PostgresDsn = 'sqlite+aiosqlite:///d:\\tmp\\simplify\\musicbase.db'
 
     # ======= ==== Security config =============
-    SECRET_KEY: str = Field(..., description='JWT key(MUST randomly generated in production)')
-    ACOUSTID_API_KEY: str = Field(..., description='AcoustID dev api-key(from acoustid.org)')
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(60 * 24 * 7, description='access token expire minutes(default: 7 days)')
-    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(30, description='refresh token expire days(default: 30)')
+    SECRET_KEY: str = Field(default=..., description='JWT key(MUST randomly generated in production)')
+    ACOUSTID_API_KEY: str = Field(default=..., description='AcoustID dev api-key(from acoustid.org)')
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24 * 7, description='access token expire minutes(default: 7 days)')
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30, description='refresh token expire days(default: 30)')
 
     # =========== Music library config =========
     MUSIC_LIBRARY_PATH: Path = Field(default=PROJECT_BASE / 'music_library', description='Music library root directory(can be overridden by environment variables)')
-    MUSIC_FILE_EXTENSIONS: list[str] = Field(['.mp3', '.flac'], description='Music file extensions(default: [.mp3, .flac]，can be overridden by environment variables)')
-    MUSIC_STATIC_PREFIX: str = Field('/music', description='Music file statically dealt by nginx with prefix(default: /music，can be overridden by environment variables)')
+    MUSIC_FILE_EXTENSIONS: list[str] = Field(default=['.mp3', '.flac'], description='Music file extensions(default: [.mp3, .flac]，can be overridden by environment variables)')
+    MUSIC_STATIC_PREFIX: str = Field(default='/music', description='Music file statically dealt by nginx with prefix(default: /music，can be overridden by environment variables)')
 
     # ========== App base path config ===========
     PROJECT_ROOT: Path = Field(default=PROJECT_BASE, description='Project root directory(can be overridden by environment variables)')
@@ -138,43 +138,45 @@ class Settings(BaseSettings):
         return path
     
     # ========== CORS config ============
-    CORS_ORIGINS: list[str] = Field(['*'], description='allowed origins')
+    CORS_ORIGINS: list[str] = Field(default=['*'], description='allowed origins')
 
     # ========== CoverArt API config ====
-    COVER_ART_BASE_URL: str = Field('http://coverartarchive.org', description='cover art base url')
-    COVER_ART_PATH: list[str] = Field([
+    COVER_ART_BASE_URL: str = Field(default='http://coverartarchive.org', description='cover art base url')
+    COVER_ART_PATH: list[str] = Field(default=[
         '/release/{release_id}/front',
         '/release/{release_id}/back',
     ], description='cover art path')
-    CACHE_EXPIRE: int = Field(300, description='cache expire time(seconds)')
-    CACHE_MAX: int = Field(100, description='cache max items')
+    CACHE_EXPIRE: int = Field(default=300, description='cache expire time(seconds)')
+    CACHE_MAX: int = Field(default=100, description='cache max items')
 
     # ========== Lyric config ===========
-    LYRIC_OUT_BASE_URL:str = Field('http://localhost:28883/api/v1/lyrics/', description='lyric server address base url')
-    LYRIC_OUT_API_KEY: str = Field('your-lyric-auth', description='lyric server api key')
-
-    # ========== AI config ==============
-    AI_API_KEY: str = Field('change-to-your-ai-key', description='AI api key')
-    DASHSCOPE_BASE_URL: str = Field('https://dashscope.aliyuncs.com/api/v1', description='AI api url')
-    AI_MODEL_NAME: str = Field('qwen3.6-flash', description='AI model name')
-
-    # ========== Netease music config ===========
-    NETEASE_COOKIES_FILE: str = Field('netease_cookies.json', description='Netease cookies file')
-    NETEASE_PLAYLIST_API: str = Field(..., description='Netease playlist api')
-    NETEASE_SONG_API: str = Field(..., description='Netease song api')
-
-    # ========== Third-party Search API config ==========
-    THIRD_PARTY_SEARCH_BASE_URL: str = Field('http://192.168.1.103:3000', description='Third-party search API base URL')
-    THIRD_PARTY_SEARCH_API: str = Field('/search', description='Third-party search API path')
-    TMP_ARTWORK_CACHE_EXPIRE: int = Field(900, description='Temp artwork cache expire time in seconds (default: 15 minutes)')
-
-    # ========== Other variables ========
-    MAX_UPDATE_META_BATCH_COUNT: int = Field(20, description='max batch count of items to update metadata')
+    LC_LRCAPI:str = Field(default='http://localhost:28883', description='local lrcapi base url')
+    LC_LRCAPI_V1:str = Field(default='http://localhost:28883/api/v1/lyrics/', description='local lrcapi base url')
+    LC_LRCAPI_KEY: str = Field(default='your-lyric-auth', description='local lrcapi auth key')
+    LRCLIB_API: str = Field(default='https://lrclib.net/api', description='LrcLib api base url')
+    # ========== Netease api config ===========
+    LC_NETEASE_API: str = Field(default='http://localhost:3000', description='Local netease api base url(all api including lyrics)')
     
-settings = Settings()
+    # ========== AI config ==============
+    AI_API_KEY: str = Field(default='change-to-your-ai-key', description='AI api key')
+    DASHSCOPE_BASE_URL: str = Field(default='https://dashscope.aliyuncs.com/api/v1', description='AI api url')
+    AI_MODEL_NAME: str = Field(default='qwen3.6-flash', description='AI model name')
 
-def create_required_directories():
-    dirs_to_create = [
+    # ========== Netease music config (for import playlist) ===========
+    NETEASE_COOKIES_FILE: str = Field(default='netease_cookies.json', description='Netease cookies file')
+    NETEASE_PLAYLIST_API: str = Field(default=..., description='Netease playlist api')
+    NETEASE_SONG_API: str = Field(default=..., description='Netease song api')
+
+    # ========== Temp artwork config (use LC_NETEASE_API) ===========
+    TMP_ARTWORK_CACHE_EXPIRE: int = Field(default=900, description='Temp artwork cache expire time in seconds (default: 15 minutes)')
+
+    # ========== Other variables ====================================
+    MAX_UPDATE_META_BATCH_COUNT: int = Field(default=20, description='max batch count of items to update metadata')
+    
+settings: Settings = Settings()
+
+def create_required_directories() -> None:
+    dirs_to_create: list[Path] = [
         settings.MEDIA_ROOT,
         settings.LOG_DIR,
         settings.TEMP_DIR,
@@ -187,5 +189,5 @@ def create_required_directories():
         settings.TMP_ARTWORK_DIR
     ]
     for dir_path in dirs_to_create:
-        abs_path = dir_path.resolve()
+        abs_path: Path = dir_path.resolve()
         abs_path.mkdir(parents=True, exist_ok=True)

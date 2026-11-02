@@ -11,7 +11,7 @@
 
 from fastapi import APIRouter
 from app.core.deps import COMMON_DEPS
-from . import album, artist, folder, genre, track, playback, sync, search, netease
+from . import album, artist, folder, genre, track, playback, sync, search, netease, lyric
 
 music_router = APIRouter(dependencies=COMMON_DEPS)
 
@@ -24,3 +24,4 @@ music_router.include_router(playback.router, prefix='/playback', tags=['music_pl
 music_router.include_router(sync.router, prefix='/sync', tags=['music_sync'])
 music_router.include_router(search.router, prefix='/search', tags=['music_search'])
 music_router.include_router(netease.router, prefix='/netease', tags=['music_netease'])
+music_router.include_router(lyric.router, prefix='/lyric', tags=['music_lyric'])

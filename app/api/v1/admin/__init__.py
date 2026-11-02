@@ -10,7 +10,7 @@
 
 
 from fastapi import APIRouter
-from . import scan, sysinfo, upload, edit, backup, log, artwork
+from . import scan, sysinfo, upload, edit, backup, log, artwork, lyric
 
 admin_router = APIRouter()
 
@@ -21,3 +21,4 @@ admin_router.include_router(edit.router, prefix='/edit', tags=['admin_edit'])
 admin_router.include_router(backup.router, prefix='/backup', tags=['admin_backup'])
 admin_router.include_router(log.router, prefix='/log', tags=['admin_log'])
 admin_router.include_router(artwork.router, prefix='/artwork', tags=['admin_artwork'])
+admin_router.include_router(lyric.router, prefix='/lyric', tags=['admin_lyric'])

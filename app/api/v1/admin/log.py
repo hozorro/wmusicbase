@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from app.core.deps import ADMIN_DEPS
 from app.services.log_service import LogService
 from app.schemas.common import ResponseModel
-from app.schemas.sysinfo import LogPageResponse, LogProperty
+from app.schemas.sysinfo import LogPageResponse, LogProperty, LogResponse
 
 router = APIRouter(dependencies=ADMIN_DEPS)
 
@@ -58,7 +58,7 @@ async def get_logs(
     )
     return ResponseModel(
         data=LogPageResponse(
-            logs=logs, 
+            logs=[LogResponse.model_validate(log) for log in logs], 
             pagination={
                 'total': total, 
                 'page': page, 

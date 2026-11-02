@@ -19,9 +19,10 @@ from fastapi import APIRouter, Depends, Query, Response, UploadFile, Form, statu
 from fastapi.responses import FileResponse
 from app.core.config import settings
 from app.schemas.common import ResponseModel, SuccessMsgModel
-from app.services.artwork_service import ArtworkService
+from app.services.artwork_service import ArtworkService, ArtType
 from app.services.fetchcoverart import get_cover_art, cover_cache
 from app.core.exceptions import BusinessException
+
 
 router = APIRouter()
 
@@ -129,7 +130,7 @@ async def get_tmp_artist_artwork(
     )
 
 @router.get('/default/{art_type}', tags=['artwork'])
-async def get_default_artwork(art_type: str, service: ArtworkService = Depends(ArtworkService)):
+async def get_default_artwork(art_type: ArtType, service: ArtworkService = Depends(ArtworkService)):
     cache_path = await service.get_default_art(art_type)
     if cache_path: 
         return FileResponse(cache_path)
@@ -159,7 +160,7 @@ async def get_artist_art_candidate(
     )
 
 @router.post('/default', response_model=ResponseModel[SuccessMsgModel], tags=['edit'])
-async def set_default_art(cover: UploadFile, art_type: str = Form(...), service: ArtworkService = Depends(ArtworkService)):
+async def set_default_art(cover: UploadFile, art_type: ArtType = Form(...), service: ArtworkService = Depends(ArtworkService)):
     try:
         if cover.content_type not in ['image/jpeg', 'image/png']:
             raise BusinessException(
