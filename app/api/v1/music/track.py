@@ -10,7 +10,7 @@
 
 
 from fastapi import APIRouter, Depends, status
-from app.schemas.common import ResponseModel, SuccessMsgModel
+from app.schemas.common import ResponseModel
 from app.schemas.track import TrackInfoResponse, TrackMoreInfoResponse
 from app.schemas.common import TrackBrief
 from app.services.track_service import TrackService
@@ -80,12 +80,8 @@ async def get_collection_tracks(collection_type: str, collection_id: int, servic
     tracks = await service.get_collection_tracks(collection_type, collection_id)
     return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
 
-@router.get('/lyric/{track_id:int}', response_model=ResponseModel[str | None])
+@router.get('/lyric/{track_id:int}', response_model=ResponseModel[str])
 async def get_lyric(track_id: int, service: TrackService = Depends(TrackService)):
+    '''lyric text of a track, an empty string means the track has no lyric yet'''
     lyric = await service.get_lyric(track_id)
-    return ResponseModel(data=lyric or '')
-
-@router.delete('/lyric/{track_id:int}', response_model=ResponseModel[SuccessMsgModel])
-async def delete_lyric(track_id: int, service: TrackService = Depends(TrackService)):
-    await service.delete_lyric(track_id)
-    return ResponseModel(data=SuccessMsgModel())
+    return ResponseModel(data=lyric)

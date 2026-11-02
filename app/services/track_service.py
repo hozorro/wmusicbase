@@ -9,7 +9,7 @@
 '''
 
 
-import aiofiles, requests, re
+import asyncio
 from datetime import datetime
 from fastapi import Request, status
 from sqlalchemy import select, func, desc, nulls_last
@@ -18,6 +18,7 @@ from app.core.deps import SettingsDep, DbDep
 from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.models import Track, track_artists, track_genres, Artist, Album, TrackFav, TrackHit, PlaylistTrack
+from app.services.lyric_index_service import read_lyric_file
 from app.utils.audiofile import AudioMeta
 from app.utils.streaming import signer
 
@@ -363,111 +364,23 @@ class TrackService:
         else:
             return []
 
-    @staticmethod
-    def _is_valid_lyric(text: str) -> bool:
+    async def get_lyric(self, track_id: int) -> str:
+        '''lyric text of a track, read from the .lrc file next to the audio file
+
+        an empty string means the track has no lyric yet. fetching is owned by
+        the lyric index pipeline (lyrics table + fetcher), never done on demand
+        here, so the disk file and the indexed row can not drift apart.
         '''
-        check if lyric content is valid
-        valid lyric should have timestamp lines like [00:00.00] or metadata tags like [ar:...]
-        invalid content includes error messages, empty lines, or non-lyric text
-        '''
-        if not text or not text.strip():
-            return False
-    
-        # common invalid patterns
-        invalid_patterns = [
-            r'^Lyrics not found\.?$',
-            r'^No lyrics available\.?$',
-            r'^暂无歌词$',
-            r'^未找到歌词$',
-            r'^error',
-            r'^failed',
-            r'^404',
-            r'^<!DOCTYPE',
-            r'^<html',
-            r'^{"error',
-        ]
-        
-        text_stripped = text.strip()
-        for pattern in invalid_patterns:
-            if re.search(pattern, text_stripped, re.IGNORECASE):
-                return False
-        
-        # valid lyric should have at least one timestamp line [mm:ss.xx]
-        timestamp_pattern = r'\[\d{2}:\d{2}\.\d{2,3}\]'
-        if re.search(timestamp_pattern, text):
-            return True
-        
-        # or have metadata tags like [ar:Artist], [ti:Title], etc.
-        metadata_pattern = r'\[(ar|ti|al|by|offset|version):[^\]]+\]'
-        if re.search(metadata_pattern, text, re.IGNORECASE):
-            return True
-    
-        # no timestamp and no metadata, likely invalid
-        return False
-        
-    async def get_lyric(self, track_id: int) -> str | None:
-        result = await self.db.execute(
-            select(Track)
-            .options(
-                load_only(Track.title, Track.path),
-                selectinload(Track.artists).load_only(Artist.name),
-            )
-            .where(Track.id == track_id)
-        )
-        track = result.scalar_one_or_none()
-        if not track: return None
-        
-        # first lookup the lyric file with the same name as the track in the track directory
-        track_path = (self.settings.MUSIC_LIBRARY_PATH / track.path).resolve()
-        lyric_path = track_path.with_suffix('.lrc')
-        if lyric_path.exists(): 
-            async with aiofiles.open(lyric_path, mode='r', encoding='utf-8') as f:
-                return await f.read()
-        else:
-            # then request the lyric from the lyric server
-            params = {'title': track.title, 'artist': track.artists[0].name}
-            try:
-                res = requests.get(
-                    self.settings.LC_LRCAPI_V1 + 'single', 
-                    params=params,
-                    headers={
-                        'Content-Type': 'text/plain',
-                        'Authorization': self.settings.LC_LRCAPI_KEY,
-                    },
-                    timeout=10
-                )
-                text = res.text
-                # save the lyric file to the track directory with the same name as the track
-                if text and self._is_valid_lyric(text):
-                    async with aiofiles.open(lyric_path, mode='w', encoding='utf-8') as f:
-                        await f.write(text)
-                    return text
-                else:
-                    return None
-            except requests.exceptions.RequestException as err: 
-                logger.error(f'get lyric error: {str(err)}')
-                return None
-            except IOError:
-                logger.error(f'save lyric file error: {lyric_path}')
-                return None
-            except Exception as e:
-                logger.error(f'get lyric error: {e}')
-                return None
-            
-    async def delete_lyric(self, track_id: int) -> None:
-        track = await self.db.get(Track, track_id)
-        if not track: return
-        lyric_path = (self.settings.MUSIC_LIBRARY_PATH / track.path).with_suffix('.lrc')
-        try:
-            if lyric_path.exists(): 
-                lyric_path.unlink()
-        except Exception as e:
-            logger.error(f'delete lyric {lyric_path} error: {e}')
-            raise BusinessException(
-                code=30306, 
-                msg='delete lyric error', 
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            )
+        track_path = (await self.db.execute(
+            select(Track.path).where(Track.id == track_id)
+        )).scalar_one_or_none()
+        if track_path is None:
+            return ''
+
+        lyric_path = (self.settings.MUSIC_LIBRARY_PATH / track_path).with_suffix('.lrc')
+        if not await asyncio.to_thread(lyric_path.exists):
+            return ''
+        return await asyncio.to_thread(read_lyric_file, lyric_path) or ''
 
     async def get_tracks_hit_time(self) -> list[datetime]:
         result = await self.db.execute(
