@@ -47,6 +47,13 @@ MAX_SNIPPETS = 3
 SNIPPET_WINDOW = 24
 SNIPPET_MERGE_GAP = 8
 
+# asyncpg rejects a statement with more than 32767 bind parameters. one lyric row
+# takes 3 of them (track_id / path / status), so bulk inserts are chunked and a
+# large library can no longer blow up the whole statement.
+INSERT_BATCH = 2000
+# the same cap applies to an IN (...) list, one parameter per element.
+ID_BATCH = 5000
+
 
 def to_plain(text: str) -> str:
     '''lrc text -> plain lyric text
@@ -219,10 +226,10 @@ class LyricIndexService:
             {'track_id': tid, 'path': self.track_lrc_path(path), 'status': 'pending'}
             for tid, path in tracks if tid not in existing
         ]
-        if payload:
+        for start in range(0, len(payload), INSERT_BATCH):
             await self.db.execute(
                 pg_insert(Lyric)
-                .values(payload)
+                .values(payload[start:start + INSERT_BATCH])
                 .on_conflict_do_nothing(index_elements=['track_id'])
             )
         return len(payload)

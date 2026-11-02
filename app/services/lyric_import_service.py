@@ -21,7 +21,7 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import DbDep, SettingsDep
 from app.core.logger import logger
 from app.models import Lyric, Track
-from app.services.lyric_index_service import LYRIC_CFG, read_lyric_file, to_plain
+from app.services.lyric_index_service import ID_BATCH, LYRIC_CFG, read_lyric_file, to_plain
 
 VALID_STATUS = ('pending', 'ok', 'review', 'skip', 'failed')
 COMMIT_EVERY = 100
@@ -162,11 +162,13 @@ class LyricImportService:
             'lyric': lyric.lyric_plain or '',
         } for lyric, track in rows]
 
-        await self.db.execute(
-            update(Lyric)
-            .where(Lyric.id.in_([lyric.id for lyric, _ in rows]))
-            .values(best_exported_at=func.now())
-        )
+        ids = [lyric.id for lyric, _ in rows]
+        for start in range(0, len(ids), ID_BATCH):
+            await self.db.execute(
+                update(Lyric)
+                .where(Lyric.id.in_(ids[start:start + ID_BATCH]))
+                .values(best_exported_at=func.now())
+            )
         await self.db.commit()
         logger.info(f'🎵Lyric best export: {len(items)} pending row(s) exported.')
         return items
