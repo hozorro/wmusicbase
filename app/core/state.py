@@ -33,6 +33,14 @@ class ArtworkProgress(TypedDict):
     total_failed: int
     current_item: str
 
+class LyricInitProgress(TypedDict):
+    '''lyric table init progress, reported to frontend by polling'''
+    total: int
+    processed: int
+    ok: int
+    pending: int
+    current_file: str
+
 @dataclass
 class SystemState:
     is_watcher_running: bool = False    # only for dev when watcher is running in fastapi background task mode
@@ -45,6 +53,13 @@ class SystemState:
     is_generating_artworks: bool = False
     artwork_progress: ArtworkProgress | None = None
     _is_artwork_gen_canceled: bool = False
+
+    # lyric table init state
+    is_initializing_lyrics: bool = False
+    lyric_init_progress: LyricInitProgress | None = None
+    _is_lyric_init_canceled: bool = False
+    # incremental lyric fetch state
+    is_fetching_lyrics: bool = False
 
     @property
     def is_scanning_canceled(self):
@@ -103,5 +118,32 @@ class SystemState:
 
     def cancel_artwork_gen(self):
         self._is_artwork_gen_canceled = True
+
+    # ---- lyric init state ----
+    @property
+    def is_lyric_init_canceled(self):
+        return self._is_lyric_init_canceled
+    @is_lyric_init_canceled.setter
+    def is_lyric_init_canceled(self, value):
+        self._is_lyric_init_canceled = value
+
+    def init_lyric_state(self):
+        self.is_initializing_lyrics = True
+        self._is_lyric_init_canceled = False
+        self.lyric_init_progress = {
+            'total': 0,
+            'processed': 0,
+            'ok': 0,
+            'pending': 0,
+            'current_file': '',
+        }
+
+    def reset_lyric_state(self):
+        self.is_initializing_lyrics = False
+        self.lyric_init_progress = None
+        self._is_lyric_init_canceled = False
+
+    def cancel_lyric_init(self):
+        self._is_lyric_init_canceled = True
 
 system_state = SystemState()

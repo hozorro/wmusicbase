@@ -27,6 +27,7 @@ from app.core.config import settings
 from app.core.logger import logger, init_logging
 from app.services.processor import MusicFileProcessor
 from app.services.artwork_service import ArtworkService
+from app.services.lyric_index_service import LyricIndexService
 from app.services.lyric_service import LyricService
 from app.models.track import Track
 from app.utils.metadata import easy_metadata, parse_metadata
@@ -104,18 +105,29 @@ class MusicLibraryWatcher:
 
             await asyncio.sleep(0.5)
 
-    def _enqueue_lyric(self, file_path: str, meta: ParsedMeta):
+    async def _enqueue_lyric(self, db, file_path: str, meta: ParsedMeta):
         '''
-        queue a background lyric fetch for a persisted track.
+        keep the lyric table aligned with tracks, then queue a background fetch.
         the lyric (.lrc, same name as the audio file) is written next to the track
         by the lyric worker thread. never raises: a lyric problem must not break
         the file pipeline.
         '''
+        relative = relative_path(file_path)
+        try:
+            await LyricIndexService(db, settings).ensure_row_by_track_path(relative)
+            await db.commit()
+        except Exception as e:
+            logger.error(f'❌Ensure lyric row failed: {relative}: {e}')
+
         title = (meta.title or '').strip()
         if not title:
-            logger.debug(f'🎵No title tag, skip lyric fetch: {relative_path(file_path)}')
+            logger.debug(f'🎵No title tag, skip lyric fetch: {relative}')
             return
         try:
+            # the worker runs in its own thread, post results back to this loop
+            loop = asyncio.get_running_loop()
+            self.lyric_service.on_result = lambda res: asyncio.run_coroutine_threadsafe(
+                self._persist_lyric(res), loop)
             queued = self.lyric_service.submit({
                 'path': str(Path(file_path)),
                 'title': title,
@@ -124,12 +136,21 @@ class MusicLibraryWatcher:
                 'duration': float(meta.duration or 0),
             })
         except Exception as e:
-            logger.error(f'❌Queue lyric fetch failed: {relative_path(file_path)}: {e}')
+            logger.error(f'❌Queue lyric fetch failed: {relative}: {e}')
             return
         if queued:
             logger.info(f'🎵Lyric fetch queued: {relative_path(file_path)}')
         else:
             logger.debug(f'🎵Lyric fetch ignored, already pending: {relative_path(file_path)}')
+
+    async def _persist_lyric(self, result) -> None:
+        '''write a finished lyric fetch result back to the lyric table'''
+        try:
+            async with AsyncSessionLocal() as db:
+                await LyricIndexService(db, settings).apply_fetch_result(result)
+                await db.commit()
+        except Exception as e:
+            logger.error(f'❌Persist lyric result failed: {result.path}: {e}')
 
     async def consumer_worker(self):
         '''
@@ -178,7 +199,7 @@ class MusicLibraryWatcher:
                             await db.commit()
                             logger.info(f'✅File processed: {relative_path(file_path)}')
                             # metadata is in the database now, fetch the lyric in the background
-                            self._enqueue_lyric(file_path, parsed)
+                            await self._enqueue_lyric(db, file_path, parsed)
                         except Exception as e:
                             logger.error(f'❌Commit pending tracks error: {str(e)}', exc_info=True)
                         finally:

@@ -395,9 +395,12 @@ class _RateLimiter:
 class LyricService:
     """Lyric service for watcher. Thread-safe: submit can be called from any thread."""
 
-    def __init__(self, settings: Settings, http_getter=None):
+    def __init__(self, settings: Settings, http_getter=None, on_result=None):
         self.settings = settings
         self._get = http_getter # 注入 self._get 时走注入函数（自测用），签名 (url, timeout) -> (text, err)。
+        # called in the worker thread with the finished LyricResult, must be cheap
+        # and thread safe (the watcher posts it back to the event loop)
+        self.on_result = on_result
         self._stop = threading.Event()
         self._queue = []
         self._queue_cv = threading.Condition()
@@ -567,7 +570,17 @@ class LyricService:
             with self._queue_cv:
                 self._pending.discard(t['path'])
             self._account(res)
+            self._emit(res)
         logger.debug('Worker thread stopped.')
+
+    def _emit(self, res: LyricResult):
+        '''hand a finished result to the caller callback (db writer, cli hook...)'''
+        if not self.on_result:
+            return
+        try:
+            self.on_result(res)
+        except Exception:
+            logger.exception('Lyric callback failed: %s', res.path)
 
     def _account(self, res):
         self.stats.done += 1
@@ -611,7 +624,9 @@ class LyricService:
         
         if res.lrc_path and res.lrc_path.exists() and not overwrite:
             if not self._stale(str(res.lrc_path), track['title']):
-                res.status, res.note = 'skip', 'exists'
+                # a lyric file is ready on disk: this is a success, not a skip.
+                # 'skip' is reserved for tracks that cannot be fetched at all.
+                res.status, res.note, res.written = 'ok', 'exists', True
                 return
             logger.info('Existed lyric is stale with title, will be overwritten: %s', res.lrc_path)
         
@@ -1053,7 +1068,11 @@ def _is_net_error(err):
 def _port_open(url):
     try:
         u = urlparse(url)
-        s = socket.create_connection((u.hostname, u.port or 80), timeout=1.0)
+        host = str(u.hostname) if u.hostname else None
+        if not host:
+            return False
+        port = u.port or 80
+        s = socket.create_connection((host, port), timeout=1.0)
         s.close()
         return True
     except Exception:

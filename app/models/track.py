@@ -11,7 +11,7 @@
 
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
-    from . import Folder, Album, Artist, Genre, TrackHit, TrackFav, Playlist
+    from . import Folder, Album, Artist, Genre, TrackHit, TrackFav, Playlist, Lyric
 
 from sqlalchemy import Table, Column, Integer, String, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TIMESTAMP
@@ -64,6 +64,7 @@ class Track(Base, DateTimeMixin):
     album: Mapped[Optional['Album']] = relationship('Album', back_populates='tracks')
     artists: Mapped[list['Artist']] = relationship(secondary='track_artists', back_populates='tracks')
     genres: Mapped[list['Genre']] = relationship(secondary='track_genres', back_populates='tracks')
+    lyric: Mapped[Optional['Lyric']] = relationship('Lyric', back_populates='track', uselist=False)
 
     # Playback
     favorites: Mapped[list['TrackFav']] = relationship('TrackFav', back_populates='track', cascade='all, delete-orphan')
