@@ -48,7 +48,7 @@ IDLE_EXIT = 1800
 LENIENT_DURATION = 0.0
 PAGE_CANDIDATES_COUNT = 100
 PAGES = 2
-WRITE_REVIEW = False
+WRITE_REVIEW = True
 
 # --------------------------------------------------------------------------
 # Text normalization

@@ -27,6 +27,19 @@ cd wmusicbase
     * the [fpcalc command-line tool](https://github.com/acoustid/chromaprint/releases). If you use fpcalc, either ensure that it is on your $PATH or set the FPCALC environment variable to its location.
 * create database(postgresql)
 * create or edit .env(copy from .env.example)
+* install postgresql pg-jiaba extension:
+```bash
+# download and install pig tool
+curl https://repo.pigsty.io/pig | bash
+# add PGSQL repo and update cache
+pig repo add pgsql -u
+# install pg-jieba extension(if you use postgresql 14, then install postgresql-14-pg-jieba)
+sudo apt install postgresql-16-pg-jieba
+# create extension
+sudo -u postgres psql
+\c wmusicbase
+CREATE EXTENSION pg_jieba;
+```
 * initialization:
 ```bash
 uv run init-dirs
