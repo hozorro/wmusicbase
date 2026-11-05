@@ -9,6 +9,7 @@
 '''
 
 
+from app.core.exceptions import BusinessException
 from fastapi import APIRouter
 from . import scan, sysinfo, upload, edit, backup, log, artwork, lyric
 
@@ -22,3 +23,7 @@ admin_router.include_router(backup.router, prefix='/backup', tags=['admin_backup
 admin_router.include_router(log.router, prefix='/log', tags=['admin_log'])
 admin_router.include_router(artwork.router, prefix='/artwork', tags=['admin_artwork'])
 admin_router.include_router(lyric.router, prefix='/lyric', tags=['admin_lyric'])
+
+@admin_router.get('/testerr')
+async def test():
+    raise BusinessException(code=70901, msg='test err', detail={'a': 1, 'b': 2})

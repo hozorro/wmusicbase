@@ -107,7 +107,7 @@ async def edit_playlist(
             await artwork_service.save_uploaded_playlist_image(data.id, data.cover)
         except Exception:
             raise BusinessException(
-                code=30509, 
+                code=30510, 
                 msg='update successful but error when save playlist image', 
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             )

@@ -150,7 +150,7 @@ async def export_user_hit_data(user_id: int, service: PlayDataService = Depends(
         )
     except Exception as e:
         raise BusinessException(
-            code=70502, 
+            code=70318, 
             msg=f'user hits data backup error: {str(e)}', 
             detail={'user_id': user_id}, 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR

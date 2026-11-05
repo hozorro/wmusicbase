@@ -665,8 +665,8 @@ class NeteaseService:
         
         if not songs:
             raise BusinessException(
-                code=30525,
-                msg=f'Failed to get song info: {last_desc}',
+                code=30528,
+                msg=f'netease song info request failed: {last_desc}',
                 status_code=502
             )
 
