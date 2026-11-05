@@ -77,6 +77,7 @@ def cancel_scan(current_user: CurrentUser = Depends(require_admin)):
         cancel_scan_task()
     logger.info(f"{current_user.username} canceled the scanner.")
     return ResponseModel(code=200, msg='ok', data=None)
+    
 @router.get('/progress', response_class=StreamingResponse)
 def scan_progress(request: Request, _: CurrentUser = Depends(require_admin)):
     return StreamingResponse(progress_generator(request), media_type='text/event-stream')

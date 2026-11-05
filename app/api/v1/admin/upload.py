@@ -175,7 +175,7 @@ async def update_metatags(session_id: str, input: UpdateMetaTagsList, service: F
         return ResponseModel(data=CountResponse(count=len(input.items)))
     except Exception:
         raise BusinessException(
-            code=70307, 
+            code=70319, 
             msg='error when update file meta tags', 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
         )

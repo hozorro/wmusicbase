@@ -39,8 +39,9 @@ class TrackService:
         track = await self.db.get(Track, track_id)
         if not track:
             raise BusinessException(
-                code=30304,
+                code=30308,
                 msg=f'track not exists: {track_id}',
+                detail={'track_id': track_id},
                 status_code=status.HTTP_404_NOT_FOUND
             )
         track_path = str((self.settings.MUSIC_LIBRARY_PATH / track.path).resolve())

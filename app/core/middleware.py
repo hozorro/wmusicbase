@@ -13,6 +13,7 @@ import uuid
 from fastapi import Request, status
 from starlette.responses import JSONResponse
 from app.core.state import system_state
+from app.core.exceptions import http_code_of
 from starlette.middleware.base import BaseHTTPMiddleware
 
 ALLOWED_DURING_SCAN = {
@@ -37,10 +38,15 @@ class ScanMiddleware:
         
         request = Request(scope)
         if system_state.is_scanning and request.url.path not in ALLOWED_DURING_SCAN:
-            # return 423 Locked（resource is currently locked）
+            # return 423 Locked（resource is currently locked）, same envelope as other errors
             response = JSONResponse(
                 status_code=status.HTTP_423_LOCKED,
-                content={'code': 423, 'msg': 'System is busy scanning music library, Please wait...'}
+                content={
+                    'code': http_code_of(status.HTTP_423_LOCKED),
+                    'msg': 'System is busy scanning music library, Please wait...',
+                    'detail': None,
+                    'traceId': getattr(request.state, 'trace_id', None),
+                }
             )
             await response(scope, receive, send)
             return

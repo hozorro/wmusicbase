@@ -706,7 +706,8 @@ class ArtworkService:
         if not album: 
             raise BusinessException(
                 code=30204, 
-                msg='album not found', 
+                msg=f'album not exists: {album_id}', 
+                detail={'album_id': album_id},
                 status_code=status.HTTP_404_NOT_FOUND
             )
         content= await image_file.read()
@@ -809,7 +810,7 @@ class ArtworkService:
 
         if not self.settings.LC_NETEASE_API:
             raise BusinessException(
-                code=60124,
+                code=60127,
                 msg='third-party search api not configured',
                 status_code=502
             )
@@ -866,7 +867,7 @@ class ArtworkService:
         artists = result.get('artists', [])
         if not artists:
             raise BusinessException(
-                code=60123,
+                code=60129,
                 msg=f'artist not found: {artist_name}',
                 status_code=404
             )
@@ -892,7 +893,7 @@ class ArtworkService:
 
         if not face_temp_id and not portrait_temp_id:
             raise BusinessException(
-                code=60124,
+                code=60128,
                 msg='failed to download artist images',
                 status_code=500
             )
@@ -1013,7 +1014,7 @@ class ArtworkService:
             filename = await self.upload_artist_art_candidate(artist_id, art_type, content)
         except ValueError as e:
             raise BusinessException(
-                code=60109,
+                code=60130,
                 msg=f'failed to save artist art: {e}',
                 status_code=500
             )
@@ -1027,7 +1028,7 @@ class ArtworkService:
             except ValueError as e:
                 raise BusinessException(
                     code=60110,
-                    msg=f'failed to set artist art from candidate: {e}',
+                    msg='failed to set artist art from candidate',
                     status_code=500
                 )
 
