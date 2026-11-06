@@ -19,7 +19,7 @@ from app.utils.aidmatch import generate_fingerprint, match_fingerprint
 from app.schemas.common import ResponseModel, CountResponse
 from app.schemas.filething import (
     FileBase, SessionBase, SessionListResponse, FileInfoListResponse, UpdateVerionList, UpdateMetaTagsList,
-    CreateArchive, ArchiveResponse, CreateFingerprint, Fingerprint, MatchAcoustResponse, DeleteStagingFiles,
+    CreateArchive, ArchiveResponse, ArchiveError, CreateFingerprint, Fingerprint, MatchAcoustResponse, DeleteStagingFiles,
     CheckTrackFileRequest, CheckTrackFileResponse
 )
 from app.services.file_service import FileCheckService
@@ -255,17 +255,26 @@ async def archive_session_route(
     lang: str = 'CN', 
     service: ArchiveService = Depends(ArchiveService),
 ):
-    errors = await service.archive_session(session_id, input.items, lang, input.is_use_original_name, input.playlist)
-    if errors:
+    summary = await service.archive_session(session_id, input.items, lang, input.is_use_original_name, input.playlist)
+    errors = summary['errors']
+    # only a request that archived nothing and really failed is an error: a replayed request whose
+    # files are already gone (skipped) must not be reported as a broken archive
+    if errors and not summary['archived']:
         errors_str = '\n  '.join([f"{item['file']}: {item['error']}" for item in errors])
         error_files = [item['file'] for item in errors]
         raise BusinessException(
             code=70306, 
-            msg=f'archive track file partial success: \n{errors_str}', 
+            msg=f'failed to archive ${len(error_files)} track files', 
             detail={'errors': errors_str} if settings.DEBUG else {'errors': error_files},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-    return ResponseModel(data=ArchiveResponse(archived=True))
+    # partial success is reported in the payload instead of throwing: the client decides how to warn
+    return ResponseModel(data=ArchiveResponse(
+        archived=bool(summary['archived']),
+        archived_count=len(summary['archived']),
+        skipped=summary['skipped'],
+        errors=[ArchiveError(**item) for item in errors],
+    ))
 
 @router.post('/staging/sessions/fingerprint', response_model=ResponseModel[Fingerprint])
 async def fingerprint(fp_input: CreateFingerprint, settings: SettingsDep):

@@ -77,13 +77,25 @@
 
 ### 5. 错误码分段约定
 
+第1位：业务码段位
 | 段位 | 范围 | 用途 |
 |---|---|---|
 | `1xxxx` | 10001 ~ 19999 | 通用 / 框架 |
 | `2xxxx` | 20001 ~ 29999 | 认证与鉴权 |
-| `3xxxx` | 30001 ~ 39999 | 音乐主体（曲目 / 歌单 / 流媒体 / 网易云 / 同步） |
+| `3xxxx` | 30001 ~ 39999 | 播放端（曲目 / 歌单 / 流媒体 / 网易云 / 同步） |
 | `6xxxx` | 60001 ~ 69999 | 封面图与图片处理 |
 | `7xxxx` | 70001 ~ 79999 | 管理端（编辑 / 上传 / 扫描 / 备份 / 歌词） |
+
+第3位，实体段位，原则上按：
+| 段位 | 范围 | 用途 |
+|---|---|---|
+| `xx1xx` | xx101 ~ xx199 | 歌手-artist |
+| `xx2xx` | xx201 ~ xx299 | 专辑-album |
+| `xx3xx` | xx301 ~ xx399 | 歌曲-track |
+| `xx4xx` | xx401 ~ xx499 | 通用-common |
+| `xx5xx` | xx501 ~ xx599 | 歌单-playlist |
+| `xx6xx` | xx601 ~ xx699 | 上传或文件-upload |
+| `xx7xx` | xx701 ~ xx799 | 监控-watcher |
 
 新码在所属段位内递增，不复用、不跨段。
 
@@ -242,7 +254,7 @@
 | `70303` | 500 | `error when get session file info` | - | api/v1/admin/upload.py:77、api/v1/admin/upload.py:128 |
 | `70304` | 500 | `file not found when moving` | - | api/v1/admin/upload.py:111 |
 | `70305` | 500 | `error when moving file` | - | api/v1/admin/upload.py:117 |
-| `70306` | 500 | `f'archive track file partial success: \n{errors_str}'` | `{'errors': errors_str} if settings.DEBUG else {'errors': error_files}` | api/v1/admin/upload.py:262 |
+| `70306` | 500 | `f'archive track file failed: \n{errors_str}'` | `{'errors': errors_str} if settings.DEBUG else {'errors': error_files}` | api/v1/admin/upload.py:265 |
 | `70307` | 500 | `error when update file meta version` | - | api/v1/admin/upload.py:141 |
 | `70308` | 400 | `invalid batch count` | - | api/v1/admin/upload.py:152、api/v1/admin/upload.py:164 |
 | `70309` | 400 | `batch count overload` | - | api/v1/admin/upload.py:158 |
