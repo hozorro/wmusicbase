@@ -10,7 +10,7 @@
 
 
 from typing import Optional
-import shutil, json, re, uuid, aiofiles, time
+import asyncio, shutil, json, re, uuid, aiofiles
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import select
@@ -182,26 +182,41 @@ class ArchiveService:
         else:
             return base / track_title
 
-    async def archive_session(self, session_id: str, items: list[str], lang: str, is_use_original_name: bool, playlist: str | None) -> list[dict]:
-        '''archive all the files in the staging session directory to its proper place in the music library'''
+    async def archive_session(self, session_id: str, items: list[str], lang: str, is_use_original_name: bool, playlist: str | None) -> dict:
+        '''archive all the files in the staging session directory to its proper place in the music library
+
+        returns a summary dict:
+        - archived: staging names actually moved into the library
+        - skipped: names no longer on disk (already archived by an earlier or duplicated request)
+          or not audio files
+        - errors: [{'file': name, 'error': reason}] for files still in staging that could not be moved
+
+        the loop is idempotent: a missing file is skipped instead of being reported as a metadata
+        failure, so replaying a request that already succeeded can not look like a broken file.
+        '''
         session_dir = self.settings.STAGING_DIR / session_id
         songs_dir = session_dir / 'songs'
-        errors = []
+        archived, skipped, errors = [], [], []
         results = []
 
         for item in items:
             song_file = songs_dir / item
             if song_file.suffix.lower() not in self.settings.MUSIC_FILE_EXTENSIONS:
+                skipped.append(item)
+                continue
+            # 0. gone from staging: an earlier request has already archived it
+            if not song_file.is_file():
+                skipped.append(item)
                 continue
             # 1. extract metadata(used for path generation)
             try:
                 meta = read_metadata(song_file)
-            except Exception:
-                errors.append({'file': song_file.name, 'error': 'Failed to extract metadata'})
+            except Exception as e:
+                errors.append({'file': song_file.name, 'error': f'Failed to extract metadata: {e}'})
                 continue
             if not meta:
                 # unsupported suffix or empty metadata: same handling as a read failure
-                errors.append({'file': song_file.name, 'error': 'Failed to extract metadata'})
+                errors.append({'file': song_file.name, 'error': 'Unsupported audio file or empty metadata'})
                 continue
             # 2. recognize the artist_name(used for path generation)
             artist_name = 'Unknown Artist'
@@ -223,36 +238,31 @@ class ArchiveService:
                 errors.append({'file': song_file.name, 'error': f'Failed to generate target path: {e}'})
                 continue
             # 5. move file
+            # run the copy off the event loop: a cross-device move copies the whole file, and
+            # holding the loop would freeze every other request (and the watcher) for seconds
             try:
-                shutil.move(str(song_file), str(target_path))
+                await asyncio.to_thread(shutil.move, str(song_file), str(target_path))
+                archived.append(item)
                 results.append((item, target_path)) # item is the relative path
-                time.sleep(0.5) # add a small delay for watcher to process the added file
+                # yield to the loop so the watcher can consume the file events between moves
+                await asyncio.sleep(0)
             except Exception as e:
                 errors.append({'file': song_file.name, 'error': f'Failed to move to {target_path.name}: {e}'})
                 continue
 
-            # 6. triggle music file processor(archive to db)
-            # try:
-            #     processor = MusicFileProcessor(self.settings.MUSIC_LIBRARY_PATH, self.db)
-            #     await processor.process_single_file(target_path)
-            #     await self.db.commit()
-            # except Exception as e:
-            #     await self.db.rollback()
-            #     errors.append(f'Failed to process {target_path}: {e}')
-            #     continue
-        # 7. delete session directory if empty
-        if len(list(songs_dir.iterdir())) == 0:
+        # 6. delete session directory if empty
+        if songs_dir.exists() and not any(songs_dir.iterdir()):
             shutil.rmtree(str(songs_dir))
-        if len(list(session_dir.iterdir())) == 0:
+        if session_dir.exists() and not any(session_dir.iterdir()):
             shutil.rmtree(str(session_dir))
-        # 8. if debug mode，record the target path of the moved files, for debug later
+        # 7. if debug mode，record the target path of the moved files, for debug later
         if self.settings.DEBUG:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             with open(self.settings.LOG_DIR / 'archive.log', 'a', encoding='utf-8') as f:
                 f.write(f'[{now}]{session_id} \n')
                 for source, target in results:
                     f.write(f'{source} -> {target}\n')
-        # 9. if playlist is not empty, create a json file according to the file target path, 
+        # 8. if playlist is not empty, create a json file according to the file target path, 
         # then a playlist can be created according to the json file
         if playlist and results:
             timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -267,7 +277,7 @@ class ArchiveService:
                 }, 
                 ensure_ascii=False), encoding='utf-8'
             )
-        return errors
+        return {'archived': archived, 'skipped': skipped, 'errors': errors}
     
 class StreamService:
     '''Music streaming service'''

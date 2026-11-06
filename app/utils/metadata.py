@@ -312,11 +312,16 @@ def easy_metadata(file_path: Path | str) -> dict[str, Any] | None:
         return None
 
 def read_metadata(file_path: str | Path) -> dict[str, Any] | None:
+    '''single entry point for metadata parsing
+
+    mp3 needs the ID3/APEv2 aware decoder to fix legacy encodings, every other format
+    (flac and anything added later) goes through mutagen's easy interface. Callers must
+    not branch on the suffix: a new format is supported by extending this function only.
+    '''
     f_path = Path(file_path)
     if f_path.suffix.lower() == '.mp3':
         return parse_metadata(f_path)
-    elif f_path.suffix.lower() == '.flac':
-        return easy_metadata(f_path)
+    return easy_metadata(f_path)
 
 def _sniff_image_mime(data: bytes) -> str:
     '''detect image mime type from magic bytes, fall back to image/jpeg'''

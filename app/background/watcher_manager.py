@@ -31,7 +31,7 @@ from app.services.artwork_service import ArtworkService
 from app.services.lyric_index_service import LyricIndexService
 from app.services.lyric_service import LyricService
 from app.models.track import Track
-from app.utils.metadata import parse_metadata, easy_metadata
+from app.utils.metadata import read_metadata
 from app.schemas.filething import ParsedMeta
 
 def relative_path(file_path: str | Path) -> str:
@@ -181,10 +181,7 @@ class WatcherManager:
                             await handle_deletion(db, path)
                             logger.info(f'✅File marked deleted: {relative_path(path)}')
                         else:
-                            if Path(path).suffix.lower() == ".mp3":
-                                meta = parse_metadata(path)
-                            else:
-                                meta = easy_metadata(path)
+                            meta = read_metadata(path)
                             if not meta:
                                 # unreadable or unsupported tags: skip this file, keep the worker alive
                                 logger.warning(f'Skip file without metadata: {relative_path(path)}')

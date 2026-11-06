@@ -9,7 +9,7 @@
 '''
 
 
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, Field, RootModel
 from typing import Optional
 
 class GeneralOutPut(BaseModel):
@@ -174,8 +174,21 @@ class CheckTrackFileRequest(BaseModel):
 class FileInfoListResponse(RootModel):
     root: list[FileInfo]
 
+class ArchiveError(BaseModel):
+    file: str
+    error: str
+
 class ArchiveResponse(BaseModel):
+    '''result of one archive call
+    - archived: at least one file was moved into the music library
+    - archived_count: how many files were moved
+    - skipped: files already gone from the staging dir (archived by a previous request) or not audio
+    - errors: files that are still in staging but could not be archived
+    '''
     archived: bool
+    archived_count: int = 0
+    skipped: list[str] = Field(default_factory=list)
+    errors: list[ArchiveError] = Field(default_factory=list)
 
 class MatchAcoustResponse(BaseModel):
     matched_list: list[AcoustInfo]
