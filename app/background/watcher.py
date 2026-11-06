@@ -30,7 +30,7 @@ from app.services.artwork_service import ArtworkService
 from app.services.lyric_index_service import LyricIndexService
 from app.services.lyric_service import LyricService
 from app.models.track import Track
-from app.utils.metadata import easy_metadata, parse_metadata
+from app.utils.metadata import read_metadata
 from app.schemas.filething import ParsedMeta
 
 init_logging()
@@ -180,10 +180,7 @@ class MusicLibraryWatcher:
                             logger.warning(f'Track not found: {relative_path(file_path)}')
                     else:
                         try:
-                            if Path(file_path).suffix.lower() == ".mp3":
-                                meta = parse_metadata(file_path)
-                            else:
-                                meta = easy_metadata(file_path)
+                            meta = read_metadata(file_path)
                             if not meta:
                                 # unreadable or unsupported tags: skip this file, keep the queue alive
                                 logger.warning(f'Skip file without metadata: {relative_path(file_path)}')
