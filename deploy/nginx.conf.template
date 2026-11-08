@@ -4,12 +4,12 @@
 #   /             → player frontend (static)
 #   /admin/       → admin frontend (static)
 #   /api/         → reverse proxy to FastAPI /api/v1/
-#   /media/       → artwork static files (DEBUG only in FastAPI)
-#   /music/	  → track static files (DEBUG only in FastAPI)
+#   /media/       → artwork static files
+#   /music/	      → track static files
 # ============================================================
 
 upstream wmusicbase_api {
-    server 127.0.0.1:8000;
+    server 127.0.0.1:8085;  # ← Replace with actual API port
     keepalive 32;
 }
 
@@ -18,20 +18,30 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# ^~ /admin/ 会跳过所有正则 location，缓存策略只能在块内用变量设置
+# map 的正则按出现顺序取第一个命中，\.html$ 必须排在 /admin/assets/ 之前
+map $uri $admin_cache_control {
+    default                  "public, max-age=86400, must-revalidate";
+    ~*\.html$                 "no-cache";
+    ~*^/admin/assets/         "public, max-age=31536000, immutable";
+}
+
 server {
     listen 80;
-    server_name music.domain.com;
-    return 301 https://$server_name$request_uri;
+    # Replace with the actual domain name
+    server_name music.abc.com;
+    return 301 https://$server_name:5583$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name music.domain.com;
+    server_name music.abc.com;
 
     charset utf-8;
-
-    ssl_certificate /path/to/cert/of/fullchain.pem;
-    ssl_certificate_key /path/to/cert/of/privkey.pem;
+    
+    # Replace with the actual cert file path
+    ssl_certificate /etc/letsencrypt/live/abc.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/abc.com/privkey.pem;
     ssl_session_timeout 5m;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE:ECDH:AES:HIGH:!NULL:!aNULL:!MD5:!ADH:!RC4;
@@ -63,28 +73,39 @@ server {
     }    
     
     # -------------------------------------------------------
-    # 3. PWA: worker / manifest no cache
+    # 3. PWA: worker / 注册脚本 / manifest 一律不缓存
     # -------------------------------------------------------
-    location ~* ^/(sw\.js|service-worker\.js|workbox-[^/]*\.js|manifest\.webmanifest)$ {
-        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    location ~* ^/(sw\.js|registerSW\.js|service-worker\.js|workbox-[^/]*\.js|manifest\.webmanifest)$ {
         expires off;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
         try_files $uri =404;
     }
 
     # -------------------------------------------------------
-    # 4. html files should not be cached
+    # 4. html：允许存储，但每次必须重验证
+    #    expires 0 + add_header 会产生两个 Cache-Control，改用 expires off
     # -------------------------------------------------------
     location ~* \.html$ {
-        add_header Cache-Control "no-cache";
-        expires 0;
+        expires off;
+        add_header Cache-Control "no-cache" always;
     }
 
     # -------------------------------------------------------
-    # 5. assets can be cached long term
+    # 5a. /assets/* —— Vite 输出的内容哈希文件，可永久缓存
+    #     ^~ 优先于下面的扩展名正则；不加 always，避免 404 被 immutable 缓存一年
     # -------------------------------------------------------
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 1y;
-        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    location ^~ /assets/ {
+        expires off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # -------------------------------------------------------
+    # 5b. public/ 原样拷贝的无哈希文件（imgs/*.jpg、icons、favicon…）
+    #     短 TTL + 强制重验证：换图 / 换图标后老用户仍能拿到新文件
+    # -------------------------------------------------------
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|webp|avif|woff|woff2|ttf|eot)$ {
+        expires off;
+        add_header Cache-Control "public, max-age=86400, must-revalidate";
     }
 
     # -------------------------------------------------------
@@ -95,6 +116,9 @@ server {
     location ^~ /admin/ {
         alias /var/www/wmusic/admin/;
         index index.html;
+        # ^~ 会跳过上面所有正则 location，缓存策略必须在这里按 URI 单独设置
+        # 不加 always：404 不该被长缓存
+        add_header Cache-Control $admin_cache_control;
         try_files $uri $uri/ /admin/index.html;
     }
     location = /admin {
@@ -135,8 +159,10 @@ server {
     location ^~ /media/ {
         alias /data/media/wmusic/artwork/;  # ← Replace with settings.ARTWORK_DIR
 
-        expires 1y;
-        add_header Cache-Control "public, immutable";
+        # 封面 URL 带 ?v=<cover_art_hash> 内容版本键，可长缓存
+        # 用单一 Cache-Control：expires 1y + add_header 会产生两个同名头
+        expires off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
         add_header X-Content-Type-Options nosniff always;
     }
 
@@ -148,7 +174,7 @@ server {
     # -------------------------------------------------------
     location ^~ /music/ {
         internal;
-        alias /data/music/;
+        alias /data/music/; # ← Replace with settings.MUSIC_DIR
         add_header Accept-Ranges bytes always;
         add_header X-Content-Type-Options nosniff always;
         expires 30d;
