@@ -171,3 +171,6 @@ netease_cookies.json
 # test stuff
 tests/
 tools/
+
+# misc
+.codebuddy/

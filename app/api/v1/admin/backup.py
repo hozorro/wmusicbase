@@ -18,8 +18,15 @@ from app.core.exceptions import BusinessException
 from app.schemas.common import ResponseModel, SuccessMsgModel
 from app.schemas.filething import PlaylistBackupResponse
 from app.schemas.playback import ImportJsonUpload, PlaylistJsonUpload, JsonImportResponse
+from app.schemas.playlist_import import (
+    PlaylistMatchRequest,
+    PlaylistMatchResponse,
+    PlaylistCreateFromMatchRequest,
+    PlaylistCreateFromMatchResponse,
+)
 from app.schemas.user import UserDetail
 from app.services.playback_service import PlaylistService, PlayDataService
+from app.services.playlist_import_service import PlaylistImportService
 from app.services.user_service import UserService
 from app.services.artist_service import ArtistService
 
@@ -207,6 +214,27 @@ async def import_fav_data(
     data = await service.validate_upload_file(file, 'favorites')
     result = await service.import_fav_from_json(item.user_id, data)
     return ResponseModel(data=JsonImportResponse.model_validate(result))
+
+# ========= imported playlist json: match & create =========
+@router.post('/matchplaylisttracks', response_model=ResponseModel[PlaylistMatchResponse])
+async def match_playlist_tracks(
+    data: PlaylistMatchRequest,
+    service: PlaylistImportService = Depends(PlaylistImportService)
+):
+    '''match parsed tracks by path or by title/artists/album, returning candidates with track ids'''
+    result = await service.match_tracks(data.tracks)
+    return ResponseModel(data=result)
+
+
+@router.post('/createplaylistfrommatch', response_model=ResponseModel[PlaylistCreateFromMatchResponse])
+async def create_playlist_from_match(
+    data: PlaylistCreateFromMatchRequest,
+    service: PlaylistImportService = Depends(PlaylistImportService)
+):
+    '''create a playlist with picked track ids only, no re-matching on the server'''
+    result = await service.create_playlist_from_track_ids(data)
+    return ResponseModel(data=result)
+
 
 # ========= test ===========
 @router.get('/exportartists', response_class=StreamingResponse)
