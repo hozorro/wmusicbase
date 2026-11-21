@@ -32,6 +32,8 @@ class LoginRequest(BaseModel):
 
 class TokenRefreshRequest(BaseModel):
     refresh_token: str = Field(..., title='Refresh Token')
+    # 兼容只把设备标识放在 body 的旧客户端；端点优先使用 X-Device-Id 头
+    device_id: str | None = Field(default=None, title='Device ID')
 
 class TokenResponse(BaseModel):
     access_token: str

@@ -26,7 +26,9 @@ router = APIRouter()
 @router.post('/login', response_model=ResponseModel[TokenResponse])
 async def login(
     data: LoginRequest,
+    request: Request,
     client_type: ClientTypeDep,
+    settings: SettingsDep,
     service: AuthService = Depends(AuthService),
 ):
     ''' login'''
@@ -38,15 +40,20 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED
         )
     
-    access_token = service.create_access_token(user.id, client_type)
-    refresh_token = await service.create_refresh_token(user.id, client_type, data.device_id)
+    # 设备标识统一：请求头优先，body 兼容旧客户端
+    device_id = request.headers.get('X-Device-Id') or data.device_id
+    refresh_token = await service.create_refresh_token(user.id, client_type, device_id)
+    # access token 绑定设备行的 jti，logout 撤销该行后旧 token 立即失效
+    device_jti = await service.get_device_token_jti(user.id, client_type, device_id)
+    access_token = service.create_access_token(user.id, client_type, jti=device_jti)
 
     return ResponseModel(
         code=200,
         msg='ok',
         data=TokenResponse(
             access_token=access_token, 
-            refresh_token=refresh_token
+            refresh_token=refresh_token,
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
     )
 
@@ -90,11 +97,12 @@ async def refresh_token(
     service: AuthService = Depends(AuthService)
 ):
     ''' refresh token'''
+    device_id = request.headers.get('X-Device-Id') or data.device_id
     try:
-        new_access, new_refresh = await service.refresh_with_rotation(
+        new_access, new_refresh = await service.refresh_session(
             client_type,
             data.refresh_token,
-            device_id=request.headers.get('X-Device-Id')
+            device_id=device_id,
         )
         return ResponseModel(
             code=200,
@@ -105,11 +113,19 @@ async def refresh_token(
                 expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
             )
         )
-    except Exception as e:
+    except ValueError:
+        # 仅凭证确实无效才返回 401，让前端清登录态
         raise BusinessException(
             code=20002,
             msg='invalid credentials when refresh token',
             status_code=status.HTTP_401_UNAUTHORIZED
+        )
+    except Exception:
+        # DB 抖动 / 连接断等临时故障：可重试，绝不把用户踢到登录页
+        raise BusinessException(
+            code=20010,
+            msg='auth service temporarily unavailable',
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
         )
 
 @router.post('/logout', response_model=ResponseModel[None])

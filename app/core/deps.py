@@ -12,6 +12,7 @@
 from fastapi import Depends, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from app.core.db import get_db
 from app.core.config import Settings
 from app.core.exceptions import BusinessException
@@ -115,7 +116,14 @@ async def get_current_user(
         return current_user
     except BusinessException:
         raise
-    except Exception as e:
+    except (SQLAlchemyError, OSError):
+        # DB 连接断 / 超时等临时故障：可重试，不能让前端误判为登录失效
+        raise BusinessException(
+            code=20010,
+            msg='auth service temporarily unavailable',
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    except Exception:
         raise BusinessException(
             code=20008,
             msg='failed to verify token',
