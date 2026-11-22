@@ -169,8 +169,8 @@ inspect_result.db
 netease_cookies.json
 
 # test stuff
-tests/
 tools/
+# tests/ 已纳入版本控制：测试代码随仓库分发（__pycache__ / .pytest_cache 仍由上面的规则忽略）
 
 # misc
 .codebuddy/

@@ -148,7 +148,7 @@
 
 ### 2xxxx —— 认证与鉴权
 
-范围 20001 ~ 29999，共 9 条。
+范围 20001 ~ 29999，共 10 条。
 
 | code | HTTP | msg | detail | 位置 |
 |---|---|---|---|---|
@@ -161,6 +161,7 @@
 | `20007` | 403 | `token type mismatch with endpoint` | - | core/deps.py:89、core/deps.py:97 |
 | `20008` | 401 | `failed to verify token` | - | core/deps.py:119 |
 | `20009` | 403 | `admin required` | - | core/deps.py:128 |
+| `20010` | 503 | `auth service temporarily unavailable` | - | api/v1/auth.py、core/deps.py |
 
 ### 3xxxx —— 音乐主体（曲目 / 歌单 / 流媒体 / 网易云 / 同步）
 

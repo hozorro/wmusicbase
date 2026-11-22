@@ -1,42 +1,24 @@
 # -*- encoding: utf-8 -*-
 '''
 @File      :   security.py
-@Time      :   2025/10/24 22:21:41
-@Author    :   enauvy
-@Version   :   1.0
-@Copyright :   ©2018-2025 WEYECO <enauvy@qq.com>
-@Desc      :   jwt authentication
+@Desc      :   security helpers (compatibility layer)
 '''
 
-
-from datetime import datetime, timedelta, timezone
-from jose import JWTError, jwt
 from passlib.context import CryptContext
-from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
+
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=10))
-    to_encode.update({"exp": expire, "type": "access"})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm='HS256')
 
-def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=7))
-    to_encode.update({"exp": expire, "type": "refresh"})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm='HS256')
-
-def verify_token(token: str) -> dict | None:
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
-        return payload
-    except JWTError:
-        return None
+# 本模块原有的 create_access_token / create_refresh_token / verify_token 是一套
+# 无人 import 的重复 JWT 实现（默认 10 分钟 / 7 天），与真实配置
+# app/core/config.py 的 ACCESS_TOKEN_EXPIRE_MINUTES(7d) / REFRESH_TOKEN_EXPIRE_DAYS(30d)
+# 相矛盾，已移除，避免误导后续维护。
+# JWT 生成与校验的唯一真源：app/services/auth_service.py::AuthService
