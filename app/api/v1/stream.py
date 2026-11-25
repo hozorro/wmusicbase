@@ -19,6 +19,7 @@ from app.core.exceptions import BusinessException
 from app.core.logger import logger
 from app.core.config import settings
 from app.utils.streaming import signer, parse_range
+from app.utils.audio_formats import audio_mime_for
 
 router = APIRouter()
 
@@ -62,8 +63,9 @@ async def stream_track(track_id: int, token: str, request: Request, service: Str
                 status_code=status.HTTP_404_NOT_FOUND
             )
         file_size = os.path.getsize(track_file)
-        mime_type, _ = mimetypes.guess_type(track_file)
-        mime_type = mime_type or 'audio/mpeg'
+        # explicit mapping first: Windows registry may not know .m4a, and the
+        # old audio/mpeg fallback would make browsers parse MP4 as MP3
+        mime_type = audio_mime_for(track_file) or mimetypes.guess_type(track_file)[0] or 'audio/mpeg'
 
         range_header = request.headers.get('Range')
 

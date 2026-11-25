@@ -24,13 +24,22 @@ from app.utils.pinyin import get_artist_sort_fields
 COMMIT_BATCH_SIZE = 200
 
 
+def _default_extensions() -> list[str]:
+    '''single source of truth: app settings; fall back for a standalone CLI run without .env'''
+    try:
+        from app.core.config import settings
+        return [e.lower() for e in settings.MUSIC_FILE_EXTENSIONS]
+    except Exception:
+        return ['.mp3', '.flac', '.m4a']
+
+
 class InspectScanner:
     '''scan music library and run inspection checks'''
 
     def __init__(self, library_path: Path, db_path: Path, extensions: list[str] | None = None):
         self.library_path = library_path.resolve()
         self.db_path = db_path
-        self.extensions = extensions or ['.mp3', '.flac']
+        self.extensions = [e.lower() for e in (extensions or _default_extensions())]
 
         # in-memory caches
         self._artist_cache: dict[str, InsArtist] = {}
@@ -101,17 +110,13 @@ class InspectScanner:
                         self._artist_dir_map[name] = rel_path
 
     def _collect_files(self) -> list[Path]:
-        '''collect all music files from the library directory'''
-        files = []
-        for ext in self.extensions:
-            files.extend(self.library_path.rglob(f'*{ext}'))
-        # also try uppercase extensions
-        for ext in self.extensions:
-            files.extend(self.library_path.rglob(f'*{ext.upper()}'))
-        # deduplicate (in case of case-insensitive filesystem)
+        '''collect all music files with one walk, case-insensitively'''
+        allowed = set(self.extensions)
         seen = set()
         unique = []
-        for f in files:
+        for f in self.library_path.rglob('*'):
+            if not f.is_file() or f.suffix.lower() not in allowed:
+                continue
             key = str(f.resolve()).lower()
             if key not in seen:
                 seen.add(key)

@@ -15,6 +15,7 @@ from mutagen.id3 import ID3
 from mutagen.apev2 import APEv2, APENoHeaderError
 from app.schemas.filething import AdditionalInfo, FileInfo, PrimaryInfo
 from .metadata import decode_tag_value, read_metadata, write_metadata, extract_cover_art_hash
+from .audio_formats import audio_file_type
 from .common import parse_year, parse_multiple_value
 
 # mutagen.id3.Encoding.UTF8 的取值；mutagen 文档同样建议直接把 encoding 设为 3
@@ -51,17 +52,17 @@ class AudioMeta:
         self.meta_version = []
         self._meta_data = None
         
-        if Path(file_path).suffix.lower() == ".mp3":
-            self.file_type = "mp3"
-        elif Path(file_path).suffix.lower() == ".flac":
-            self.file_type = "flac"
-        else:
-            self.file_type = "NA"
+        self.file_type = audio_file_type(file_path)
 
         self.init_version()
 
     def init_version(self):
         self.meta_version = []
+        if self.file_type == 'm4a':
+            # MP4 has no ID3/APEv2 headers; probing them only raises ID3NoHeaderError.
+            self.meta_encoding = 'utf-8'
+            self.meta_version = ['MP4']
+            return
         try:
             tags = ID3(self.file_path)
             id3_version = tags.version
@@ -174,6 +175,10 @@ class AudioMeta:
         del_id3v1: whether to delete ID3v1 tag
         del_apev2: whether to delete APEv2 tag
         '''
+        if self.file_type == 'm4a':
+            # ID3v1/APEv2 version upgrade does not apply to MP4 containers.
+            self.init_version()
+            return
         id3_tag = ID3(self.file_path)
         for key in id3_tag:
             if hasattr(id3_tag[key], 'text'):
@@ -214,7 +219,8 @@ class AudioMeta:
         
     def update_metadata(self, meta: dict, del_id3v1=True, del_apev2=False) -> None:
         write_metadata(self.file_path, meta)
-        if del_id3v1:
+        # MP4 has no ID3v1/APEv2 tags; write_mp4_metadata() already saved the file.
+        if del_id3v1 and self.file_type != 'm4a':
             tag = MutagenFile(self.file_path, easy=True)
             if tag is not None:
                 if self.file_type == 'mp3':
@@ -222,7 +228,7 @@ class AudioMeta:
                 else:
                     # flac 没有 ID3v1 标签，且 FLAC.save() 不接受 v1 参数
                     tag.save(self.file_path)
-        if del_apev2:
+        if del_apev2 and self.file_type != 'm4a':
             try:
                 tag = APEv2(self.file_path)
                 tag.delete()

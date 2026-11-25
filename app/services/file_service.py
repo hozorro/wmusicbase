@@ -13,6 +13,7 @@ from typing import Optional
 import asyncio, shutil, json, re, uuid, aiofiles
 from datetime import datetime
 from pathlib import Path
+from app.utils.common import normalize_music_filename
 from sqlalchemy import select
 from fastapi import Request, status
 from sqlalchemy.orm import load_only, selectinload
@@ -230,6 +231,11 @@ class ArchiveService:
                 filename = title + song_file.suffix
             else:
                 filename = song_file.name[33:]  # trim the uuid ahead(32 chars)
+            # keep the extension lowercase in both branches: uq_track_path is
+            # case-sensitive, so a mixed-case suffix would create a duplicate record.
+            # (initial library scan / watcher use the on-disk path verbatim; those
+            #  suffixes must be lowercased before the first scan, outside this project)
+            filename = normalize_music_filename(filename)
             # 4. generate target path
             try:
                 target_path = self._generate_target_path(lang, artist_name, meta.get('album'), filename)

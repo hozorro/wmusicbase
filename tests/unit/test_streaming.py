@@ -52,6 +52,16 @@ class TestParseRange:
         assert parse_range('bytes=-500', 1000) == (0, 500)
 
 
+class TestAudioMime:
+    """DEBUG streaming must not fall back to audio/mpeg for m4a on hosts without a registry entry."""
+
+    def test_stream_module_uses_explicit_mime(self):
+        from app.api.v1 import stream
+        assert stream.audio_mime_for('x.m4a') == 'audio/mp4'
+        assert stream.audio_mime_for('x.M4A') == 'audio/mp4'
+        assert stream.audio_mime_for('x.mp3') == 'audio/mpeg'
+
+
 class TestSigner:
     """Tests for TimestampSigner sign/unsign"""
 

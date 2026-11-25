@@ -4,9 +4,21 @@ Tests for app/utils/metadata.py
 Functions: decode_tag_value, extract_cover_art_hash, parse_metadata, read_apev2_tags
 """
 
+import hashlib
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from app.utils.metadata import decode_tag_value, extract_cover_art_hash, read_apev2_tags
+
+import pytest
+from mutagen.mp4 import MP4Cover  # pyright: ignore[reportPrivateImportUsage]
+
+from app.utils.metadata import (
+    decode_tag_value,
+    extract_cover_art_hash,
+    extract_embedded_artwork,
+    read_apev2_tags,
+    read_metadata,
+    write_metadata,
+)
 
 
 class TestDecodeTagValue:
@@ -130,3 +142,71 @@ class TestReadApev2Tags:
         mock_apev2.side_effect = Exception('no APEv2 header')
 
         assert read_apev2_tags(Path('/fake/song.mp3')) == {}
+
+
+class TestM4aCovers:
+    @patch('app.utils.metadata.MutagenFile')
+    def test_m4a_covr_hash(self, mock_mutagen):
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            'covr': [MP4Cover(b'\xff\xd8\xffcover', MP4Cover.FORMAT_JPEG)]
+        }
+        mock_mutagen.return_value = mock_audio
+
+        result = extract_cover_art_hash(Path('/fake/song.m4a'))
+
+        assert result == hashlib.sha1(b'\xff\xd8\xffcover').hexdigest()
+
+    @patch('app.utils.metadata.MutagenFile')
+    def test_m4a_embedded_artwork(self, mock_mutagen):
+        mock_audio = MagicMock()
+        mock_audio.tags = {
+            'covr': [MP4Cover(b'\x89PNG\r\n\x1a\ncover', MP4Cover.FORMAT_PNG)]
+        }
+        mock_mutagen.return_value = mock_audio
+
+        result = extract_embedded_artwork('/fake/song.m4a')
+
+        assert result == b'\x89PNG\r\n\x1a\ncover'
+
+
+class TestReadMetadataDispatch:
+    @patch('app.utils.metadata.parse_metadata')
+    def test_mp3_still_uses_parse_metadata(self, mock_parse):
+        mock_parse.return_value = {'title': 'T'}
+
+        assert read_metadata(Path('/fake/song.mp3')) == {'title': 'T'}
+        mock_parse.assert_called_once()
+
+    @patch('app.utils.metadata.read_mp4_freeform')
+    @patch('app.utils.metadata.easy_metadata')
+    def test_m4a_reads_acoustid_freeform(self, mock_easy, mock_free):
+        mock_easy.return_value = {'title': 'T', 'acoustid_id': ''}
+        mock_free.return_value = {'acoustid_id': 'cid-1'}
+
+        result = read_metadata(Path('/fake/song.m4a'))
+
+        assert result is not None
+        assert result['acoustid_id'] == 'cid-1'
+        assert result['title'] == 'T'
+        mock_easy.assert_called_once()
+        mock_free.assert_called_once()
+
+
+class TestWriteMetadataDispatch:
+    @patch('app.utils.metadata.write_mp4_metadata')
+    def test_write_metadata_dispatches_m4a(self, mock_write, tmp_path):
+        f = tmp_path / 'song.m4a'
+        f.write_bytes(b'x')
+        meta = {'title': 'T'}
+
+        write_metadata(f, meta)
+
+        mock_write.assert_called_once_with(f, meta)
+
+    def test_write_metadata_unknown_suffix_raises(self, tmp_path):
+        f = tmp_path / 'song.txt'
+        f.write_bytes(b'x')
+
+        with pytest.raises(ValueError, match='Unsupported audio format'):
+            write_metadata(f, {'title': 'T'})

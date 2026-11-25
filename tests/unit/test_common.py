@@ -4,7 +4,9 @@ Tests for app/utils/common.py
 Functions: parse_year, parse_multiple_value
 """
 
-from app.utils.common import parse_year, parse_multiple_value
+from pathlib import Path
+
+from app.utils.common import normalize_music_filename, parse_year, parse_multiple_value
 
 
 class TestParseYear:
@@ -45,7 +47,7 @@ class TestParseYear:
 
 
 class TestParseMultipleValue:
-    """Tests for parse_multiple_value(value: str) -> list[str] | None"""
+    """Tests for parse_multiple_value(value: str | None) -> list[str] | None"""
 
     def test_none_returns_none(self):
         assert parse_multiple_value(None) is None
@@ -84,3 +86,29 @@ class TestParseMultipleValue:
     def test_strip_whitespace(self):
         result = parse_multiple_value('  X  ;  Y  ')
         assert result == ['X', 'Y']
+
+
+class TestNormalizeMusicFilename:
+    """Only the extension is lowercased; the stem must stay byte-for-byte."""
+
+    def test_lowercases_mp3_flac_m4a(self):
+        assert normalize_music_filename('Song.MP3') == 'Song.mp3'
+        assert normalize_music_filename('Song.FLAC') == 'Song.flac'
+        assert normalize_music_filename('Song.M4A') == 'Song.m4a'
+
+    def test_mixed_case_and_dotted_stem(self):
+        assert normalize_music_filename('07. Take It All.M4a') == '07. Take It All.m4a'
+        assert normalize_music_filename('a.b.Mp3') == 'a.b.mp3'
+
+    def test_already_lowercase_is_unchanged(self):
+        assert normalize_music_filename('Song.m4a') == 'Song.m4a'
+        assert normalize_music_filename('Song.mp3') == 'Song.mp3'
+
+    def test_no_extension_is_unchanged(self):
+        assert normalize_music_filename('Song') == 'Song'
+        assert normalize_music_filename('.hidden') == '.hidden'
+
+    def test_parent_path_is_preserved(self):
+        result = Path(normalize_music_filename('sub/Song.MP3'))
+        assert result.name == 'Song.mp3'
+        assert result.parent.name == 'sub'

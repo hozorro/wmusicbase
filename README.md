@@ -1,6 +1,6 @@
 # Introduction
 WMusicbase is a personal musicbase api backend. Through the request from frontend(player and manager), it can:
-- Scan music files from music library and analyze meta data to the database. Support mp3 file with ID3v1, ID3v2, and flac files, with enforced decoding function.
+- Scan music files from music library and analyze meta data to the database. Support mp3 (ID3v1/ID3v2), flac (Vorbis Comment) and m4a (MP4/iTunes atoms, AAC or ALAC) files, with enforced decoding function for legacy mp3 tags.
 - Analyze or extract artwork of all the artists, albums and tracks and generate artwork cache at one time.
 - Organize music with artist, album, genre, folder and playlist. The artists and genres of a certain track is analyzed as list and organized one by one.
 - Streaming files to the frontend PWA player.

@@ -59,3 +59,12 @@ python_functions = ["test_*"]
 
 [tool.uv]
 package = true
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.13"
+include = ["app", "prescan", "tests"]
+exclude = ["**/__pycache__", ".venv", ".codebuddy", "media", "logs", "alembic/versions", "wmusicbase.egg-info"]
+typeCheckingMode = "basic"
+reportPrivateImportUsage = "none"

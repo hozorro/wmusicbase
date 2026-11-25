@@ -31,6 +31,13 @@ class TestPlaylistImport:
         assert p.title == 'My Playlist'
         assert p.tracks == ['Chinese/A-G/Artist/Album/song.mp3', 'Foreign/A-G/Artist/Album/song.flac']
 
+    def test_valid_m4a_track(self):
+        p = PlaylistImport(
+            title='My Playlist',
+            tracks=['Chinese/A-G/Artist/Album/song.m4a']
+        )
+        assert p.tracks == ['Chinese/A-G/Artist/Album/song.m4a']
+
     def test_none_tracks(self):
         """tracks=None should pass validation (validator must not iterate None)"""
         p = PlaylistImport(title='My Playlist', tracks=None)
@@ -51,7 +58,7 @@ class TestPlaylistImport:
 
     def test_title_required(self):
         with pytest.raises(ValidationError):
-            PlaylistImport(tracks=['Chinese/song.mp3'])
+            PlaylistImport.model_validate({'tracks': ['Chinese/song.mp3']})
 
     def test_title_too_long(self):
         with pytest.raises(ValidationError):
@@ -91,7 +98,7 @@ class TestPlaylistImportRoot:
 
     def test_from_list_of_dict(self):
         """RootModel can be built from a raw list of dicts (as import does)"""
-        root = PlaylistImportRoot([
+        root = PlaylistImportRoot.model_validate([
             {'title': 'P1', 'tracks': ['Chinese/a.mp3']},
             {'title': 'P2', 'tracks': None},
         ])

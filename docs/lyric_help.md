@@ -68,6 +68,8 @@ sudo systemctl stop fetch-v3       # 优雅停止，进度已落库
   "title":"我是愤怒","artists":["Beyond"],"album":"乐与怒","duration":252.16}]
 ```
 
+`path` 也支持 `.flac` / `.m4a`，歌词仍按同名 `.lrc` 落盘。
+
 字段名做了宽容探测，下面这些都能认：
 
 | 字段 | 可接受的键名 |
@@ -371,6 +373,7 @@ python3 fetch_v3.py export --out r.csv --status review   # 只看低置信
 [2/154] ok/high Foreign/O-T/Olly Murs/24 Hrs/13 That Girl.mp3  dt=0.0
 [7/154] skip    Foreign/O-T/.../xx.mp3  <- instrumental        # 纯音乐，不写文件
 [8/154] failed  Foreign/O-T/.../yy.mp3  <- no_candidate|兜底无果
+[9/154] ok/high Foreign/A-G/Adele/21/07 Take It All.m4a  dt=0.0
 ```
 
 等待行看前缀区分层次：

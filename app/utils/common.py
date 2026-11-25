@@ -10,14 +10,28 @@
 
 
 import re
-def parse_year(date_str: str) -> int | None:
-    '''parse year from date string'''
+from pathlib import Path
+
+def normalize_music_filename(filename: str) -> str:
+    '''lowercase only the extension; keep the stem and any parent dirs untouched
+
+    Track.path is case-sensitive (uq_track_path), so the same song stored as
+    'Song.MP3' and 'Song.mp3' would become two different records.
+    '''
+    path = Path(filename)
+    suffix = path.suffix
+    if not suffix:
+        return filename
+    return str(path.with_suffix(suffix.lower()))
+
+def parse_year(date_str: str | None) -> int | None:
+    '''parse year from date string; None/empty is a valid "no date" input'''
     if not date_str: return None
     year_str = ''.join(filter(str.isdigit, date_str[:4]))
     return int(year_str) if year_str.isdigit() and len(year_str) == 4 else None
         
-def parse_multiple_value(value: str) -> list[str] | None:
-    '''parse multiple value, return list'''
+def parse_multiple_value(value: str | None) -> list[str] | None:
+    '''parse multiple value, return list; None/empty returns None'''
     sep = r'[;,，&|/\\]'
     return list(map(lambda x: x.strip(), re.split(sep, value))) if value else None
 

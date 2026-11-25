@@ -39,7 +39,7 @@ def scan(
     library: Path = typer.Option(None, '--library', '-l', help='音乐库目录路径 (默认使用 .env 中的 MUSIC_LIBRARY_PATH)'),
     db: Path = typer.Option(Path(DEFAULT_DB_NAME), '--db', '-d', help='检查结果 SQLite 数据库路径'),
     rescan: bool = typer.Option(False, '--rescan', '-r', help='强制重新扫描 (删除旧数据库)'),
-    extensions: list[str] = typer.Option(['.mp3', '.flac'], '--ext', '-e', help='音频文件扩展名'),
+    extensions: list[str] = typer.Option([], '--ext', '-e', help='音频文件扩展名（默认跟随 settings.MUSIC_FILE_EXTENSIONS）'),
 ):
     '''扫描音乐库并运行所有检查'''
     library_path = _resolve_library_path(library)
@@ -52,7 +52,7 @@ def scan(
         db.unlink()
         typer.echo(f'Removed old database: {db}')
 
-    scanner = InspectScanner(library_path, db, extensions)
+    scanner = InspectScanner(library_path, db, extensions or None)
     scanner.run()
 
 

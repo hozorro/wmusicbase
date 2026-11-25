@@ -48,7 +48,9 @@ class TestAssembleDbUrl:
         try:
             with pytest.raises((ValidationError, ValueError)):
                 Settings(
-                    _env_file=None,
+                    # pydantic-settings injects _env_file at runtime; its static
+                    # signature is synthesized from fields only, so pyright can't see it.
+                    _env_file=None,  # pyright: ignore[reportCallIssue]
                     DB_PASSWORD='pass',
                     DB_HOST='localhost',
                     DB_PORT=5432,
@@ -76,6 +78,16 @@ class TestConvertStrToPath:
     def test_path_object(self):
         s = make_settings(MEDIA_ROOT=Path('/tmp/media'))
         assert isinstance(s.MEDIA_ROOT, Path)
+
+
+class TestMusicFileExtensions:
+    def test_default_includes_m4a(self):
+        s = make_settings(_env_file=None,
+                          NETEASE_PLAYLIST_API='http://example.invalid/playlist',
+                          NETEASE_SONG_API='http://example.invalid/song')
+        assert '.m4a' in s.MUSIC_FILE_EXTENSIONS
+        assert '.mp3' in s.MUSIC_FILE_EXTENSIONS
+        assert '.flac' in s.MUSIC_FILE_EXTENSIONS
 
 
 class TestPropertyMethods:

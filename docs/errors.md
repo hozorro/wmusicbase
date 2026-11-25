@@ -264,7 +264,7 @@
 | `70312` | 500 | `error when match song metadata` | - | api/v1/admin/upload.py:288 |
 | `70313` | 500 | `error when fetch cover art` | - | api/v1/admin/upload.py:300 |
 | `70314` | 404 | `cover art not found` | - | api/v1/admin/upload.py:306 |
-| `70315` | 415 | `only mp3 and flac files are allowed` | - | api/v1/admin/upload.py:33 |
+| `70315` | 415 | `only mp3, flac and m4a files are allowed` | - | api/v1/admin/upload.py |
 | `70316` | 500 | `f'update track metadata partial success: \n{errors_str}'` | `{'errors': errors_paths}` | api/v1/admin/edit.py:144 |
 | `70317` | 500 | `error when delete staging files` | - | api/v1/admin/upload.py:245 |
 | `70318` | 500 | `f'user hits data backup error: {str(e)}'` | `{'user_id': user_id}` | api/v1/admin/backup.py:152 |

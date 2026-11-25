@@ -15,6 +15,7 @@ from mutagen import File as MutagenFile  # pyright: ignore[reportPrivateImportUs
 from mutagen.id3 import ID3, TIT2, TALB, TPE1, TPE2, TDRC, TCON, TXXX, UFID, APIC  # pyright: ignore[reportPrivateImportUsage]
 from mutagen.apev2 import APEv2
 from mutagen.flac import FLAC, Picture
+from .audio_formats import MP4_SUFFIXES, mp4_cover_bytes, read_mp4_freeform, write_mp4_metadata
 from .common import parse_year
 from .encoding import (
     detect_shared_encoding,
@@ -314,14 +315,18 @@ def easy_metadata(file_path: Path | str) -> dict[str, Any] | None:
 def read_metadata(file_path: str | Path) -> dict[str, Any] | None:
     '''single entry point for metadata parsing
 
-    mp3 needs the ID3/APEv2 aware decoder to fix legacy encodings, every other format
-    (flac and anything added later) goes through mutagen's easy interface. Callers must
-    not branch on the suffix: a new format is supported by extending this function only.
+    mp3 needs the ID3/APEv2 aware decoder to fix legacy encodings; flac and m4a
+    go through mutagen's easy interface. MP4 additionally merges the iTunes
+    freeform atoms (AcoustID / MusicBrainz) that EasyMP4 does not expose.
+    Callers must not branch on the suffix: extend this function for a new format.
     '''
     f_path = Path(file_path)
     if f_path.suffix.lower() == '.mp3':
         return parse_metadata(f_path)
-    return easy_metadata(f_path)
+    result = easy_metadata(f_path)
+    if result is not None and f_path.suffix.lower() in MP4_SUFFIXES:
+        result.update(read_mp4_freeform(f_path))
+    return result
 
 def _sniff_image_mime(data: bytes) -> str:
     '''detect image mime type from magic bytes, fall back to image/jpeg'''
@@ -416,6 +421,12 @@ def write_metadata(file_path: str | Path, meta: dict[str, Any]) -> None:
                     audio.clear_pictures()
                     audio.add_picture(picture)
                 audio.save()
+            elif Path(file_path).suffix.lower() in MP4_SUFFIXES:
+                write_mp4_metadata(file_path, meta)
+            else:
+                raise ValueError(f'Unsupported audio format: {Path(file_path).suffix}')
+        except ValueError:
+            raise
         except Exception:
             raise Exception('Update metadata failed')
     else:
@@ -427,15 +438,22 @@ def extract_cover_art_hash(file_path: Path) -> str | None:
         audio = MutagenFile(file_path)
         if audio is None:
             return None
-        
+
+        # MP4 `covr` first: a plain elif would trap MP4 in the APIC branch
+        cover = mp4_cover_bytes(audio)
+        if cover:
+            return hashlib.sha1(cover).hexdigest()
+
         # handle mp3 file
         if hasattr(audio, 'tags') and hasattr(audio.tags, 'keys'):
             apic_keys = [key for key in audio.tags.keys() if key.startswith('APIC:')]
             if apic_keys:
                 return hashlib.sha1(audio.tags[apic_keys[0]].data).hexdigest()
+
         # handle flac file
-        elif hasattr(audio, 'pictures') and len(audio.pictures) > 0:
-            return hashlib.sha1(audio.pictures[0].data).hexdigest()
+        pictures = getattr(audio, 'pictures', None)
+        if isinstance(pictures, (list, tuple)) and pictures:
+            return hashlib.sha1(pictures[0].data).hexdigest()
     except Exception as e:
         print(f'Error extracting cover art for {file_path}: {e}')
     return None
@@ -446,12 +464,19 @@ def extract_embedded_artwork(file_path: str) -> bytes | None:
         audio = MutagenFile(file_path)
         if audio is None:
             return None
+
+        cover = mp4_cover_bytes(audio)
+        if cover:
+            return cover
+
         if hasattr(audio, 'tags') and hasattr(audio.tags, 'keys'):
             apic_keys = [key for key in audio.tags.keys() if key.startswith('APIC:')]
             if apic_keys:
                 return audio.tags[apic_keys[0]].data
-        if hasattr(audio, 'pictures') and len(audio.pictures) > 0:
-            return audio.pictures[0].data
+
+        pictures = getattr(audio, 'pictures', None)
+        if isinstance(pictures, (list, tuple)) and pictures:
+            return pictures[0].data
     except Exception as e:
         print(f'Error extracting embedded artwork from {file_path}: {e}')
         raise Exception(f'Failed to extract cover art from {file_path}: {e}')

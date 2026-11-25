@@ -85,3 +85,47 @@ class TestUpdateMetadataSave:
 
         # 不抛异常即可
         assert mock_file.called
+
+
+class TestM4aAudioMeta:
+    @patch('app.utils.audiofile.APEv2')
+    @patch('app.utils.audiofile.ID3')
+    def test_m4a_file_type_and_version(self, mock_id3, mock_apev2, tmp_path):
+        meta = _make_meta(tmp_path, 'song.m4a')
+
+        assert meta.file_type == 'm4a'
+        assert meta.meta_version == ['MP4']
+        assert meta.meta_encoding == 'utf-8'
+        mock_id3.assert_not_called()
+        mock_apev2.assert_not_called()
+
+    @patch('app.utils.audiofile.ID3')
+    def test_update_version_m4a_is_noop(self, mock_id3, tmp_path):
+        meta = _make_meta(tmp_path, 'song.m4a')
+
+        meta.update_version(use_apev2=True)
+
+        mock_id3.assert_not_called()
+        assert meta.meta_version == ['MP4']
+
+    @patch('app.utils.audiofile.write_metadata')
+    @patch('app.utils.audiofile.MutagenFile')
+    def test_update_metadata_m4a_skips_id3v1_save(self, mock_file, mock_write, tmp_path):
+        meta = _make_meta(tmp_path, 'song.m4a')
+        payload = {'title': 'new'}
+
+        meta.update_metadata(payload, del_id3v1=True, del_apev2=True)
+
+        mock_write.assert_called_once_with(meta.file_path, payload)
+        mock_file.assert_not_called()
+
+    @patch('app.utils.audiofile.write_metadata')
+    @patch('app.utils.audiofile.MutagenFile')
+    def test_flac_save_branch_unchanged(self, mock_file, mock_write, tmp_path):
+        meta = _make_meta(tmp_path, 'song.flac')
+        meta.file_type = 'flac'
+
+        with patch.object(meta, 'init_version'):
+            meta.update_metadata({'title': 'new'}, del_id3v1=True)
+
+        mock_file.return_value.save.assert_called_once_with(meta.file_path)

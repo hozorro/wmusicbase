@@ -16,6 +16,7 @@ from app.core.deps import SettingsDep, ADMIN_DEPS
 from app.core.config import settings
 from app.core.exceptions import BusinessException
 from app.utils.aidmatch import generate_fingerprint, match_fingerprint
+from app.utils.audio_formats import is_allowed_upload
 from app.schemas.common import ResponseModel, CountResponse
 from app.schemas.filething import (
     FileBase, SessionBase, SessionListResponse, FileInfoListResponse, UpdateVerionList, UpdateMetaTagsList,
@@ -29,24 +30,21 @@ router = APIRouter(dependencies=ADMIN_DEPS)
 
 @router.post('/uploadfile', response_model=ResponseModel[FileBase])
 async def upload_file(file: UploadFile, name: Annotated[str | None, Form()] = None, service: FileService = Depends(FileService)):
-    if file.content_type not in ['audio/mpeg', 'audio/flac']:
-        raise BusinessException(
-            code=70315, 
-            msg='only mp3 and flac files are allowed', 
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
-        )
-    content = await file.read()
-    if name:
-        filename = name
-    else:
-        filename = file.filename
+    filename = name or file.filename
     if not filename:
         # client may omit both the form field and the multipart filename
         raise BusinessException(
-            code=70310, 
-            msg='filename is required when uploading file', 
+            code=70310,
+            msg='filename is required when uploading file',
             status_code=status.HTTP_400_BAD_REQUEST
         )
+    if not is_allowed_upload(filename, file.content_type, settings.MUSIC_FILE_EXTENSIONS):
+        raise BusinessException(
+            code=70315,
+            msg='only mp3, flac and m4a files are allowed',
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        )
+    content = await file.read()
     await service.save_temp_file(content, filename)
     await file.close()
     return ResponseModel(data=FileBase(filename=filename))

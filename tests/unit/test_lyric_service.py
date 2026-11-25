@@ -7,9 +7,11 @@ Lyric pipeline: search -> score -> lyric -> write `<audio stem>.lrc` next to the
 import json
 import time
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
+from app.core.config import Settings
 from app.services import lyric_service as lyric_service_module
 from app.services.lyric_service import LyricResult, LyricService, score_candidate
 
@@ -55,7 +57,7 @@ def service(tmp_path):
         LC_LRCAPI='http://lrcapi.local',
         LRCLIB_API='https://lrclib.local/api',
     )
-    svc = LyricService(settings, http_getter=_fake_http_factory())
+    svc = LyricService(cast(Settings, settings), http_getter=_fake_http_factory())
     svc.limiter.interval = 0        # no rate limit wait in tests
     svc._fb_limiter.interval = 0
     return svc
@@ -85,6 +87,9 @@ class TestPathFor:
     def test_relative_path_is_library_relative(self, service, tmp_path):
         assert service.path_for('sub/Test Song.flac') == tmp_path / 'sub' / 'Test Song.lrc'
 
+    def test_m4a_path_becomes_lrc(self, service, tmp_path):
+        assert service.path_for('sub/Test Song.m4a') == tmp_path / 'sub' / 'Test Song.lrc'
+
 
 class TestNormalizeTrack:
     """caller payload -> internal track shape (title/artists/album/duration)"""
@@ -96,6 +101,7 @@ class TestNormalizeTrack:
             'artists': 'A/B & C',
             'album': None,
         })
+        assert track is not None
         assert track['title'] == 'Song'
         assert track['artists'] == ['A', 'B', 'C']
         assert track['album'] == ''
@@ -106,6 +112,7 @@ class TestNormalizeTrack:
         track = LyricService._normalize_track({
             'path': 'a/b.mp3', 'title': 'Song', 'artists': ['A'], 'duration': '250.5',
         })
+        assert track is not None
         assert track['duration'] == 250.5
         assert 'dur' not in track
 

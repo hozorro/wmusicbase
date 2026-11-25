@@ -42,14 +42,15 @@ class TestFileIteration:
     async def test_count_and_iter_only_music_files(self, tmp_path):
         (tmp_path / 'a.mp3').write_bytes(b'x')
         (tmp_path / 'b.flac').write_bytes(b'x')
-        (tmp_path / 'c.txt').write_text('x', encoding='utf-8')
+        (tmp_path / 'c.m4a').write_bytes(b'x')
+        (tmp_path / 'note.txt').write_text('x', encoding='utf-8')
         (tmp_path / 'sub').mkdir()
         (tmp_path / 'sub' / 'd.mp3').write_bytes(b'x')
 
         scanner = Scanner(tmp_path, is_incremental=False)
 
-        assert await scanner.count_files() == 3
-        assert sorted(p.name for p in scanner.iter_files()) == ['a.mp3', 'b.flac', 'd.mp3']
+        assert await scanner.count_files() == 4
+        assert sorted(p.name for p in scanner.iter_files()) == ['a.mp3', 'b.flac', 'c.m4a', 'd.mp3']
 
 
 class TestParseSingleFile:

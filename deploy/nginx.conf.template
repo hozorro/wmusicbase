@@ -175,6 +175,15 @@ server {
     location ^~ /music/ {
         internal;
         alias /data/music/; # ← Replace with settings.MUSIC_DIR
+
+        # NOTE(m4a): this template only provides a server block and does not
+        # include mime.types or declare types/default_type. The Content-Type
+        # for .m4a therefore depends on the site's main nginx.conf mapping.
+        # Before going live, confirm it contains m4a -> audio/mp4 (curl -I).
+        # If it does not, consider adding here (list ALL business suffixes,
+        # because a location-level types block overrides inherited mappings):
+        #   types { audio/mpeg mp3; audio/flac flac; audio/mp4 m4a mp4; audio/aac aac; }
+        #   default_type application/octet-stream;
         add_header Accept-Ranges bytes always;
         add_header X-Content-Type-Options nosniff always;
         expires 30d;
