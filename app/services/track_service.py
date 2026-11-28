@@ -10,6 +10,8 @@
 
 
 import asyncio
+import math
+import random
 from datetime import datetime
 from fastapi import Request, status
 from sqlalchemy import select, func, desc, nulls_last
@@ -21,6 +23,40 @@ from app.models import Track, track_artists, track_genres, Artist, Album, TrackF
 from app.services.lyric_index_service import read_lyric_file
 from app.utils.audiofile import AudioMeta
 from app.utils.streaming import signer
+
+# 首页「最近添加 / 最常播放」条数：后端、前端 URL、SW/IDB 三方共用 16
+HOME_TRACK_COUNT = 16
+
+# 与前端 idb/sw-api/endpoints/tracks.ts 的 clampInt / clampWeight 口径一致
+RANDOM_NUM_MAX = 200
+SCATTER_M_CAP = 20
+SCATTER_N_CAP = 200
+
+
+def clamp_tracks_num(num: int) -> int:
+    return min(RANDOM_NUM_MAX, max(1, int(num)))
+
+
+def normalize_pool(pool: int) -> int:
+    '''pool 夹到 100~1000 后按 100 取整；half-up 与 JS Math.round 对齐'''
+    rounded = math.floor(int(pool) / 100 + 0.5) * 100
+    return min(1000, max(100, rounded))
+
+
+def clamp_weight(weight: int) -> int:
+    '''2→0.25 弱偏向 · 5→1 线性 · 9→2 强偏向'''
+    return min(9, max(2, int(weight)))
+
+
+def weight_alpha(weight: int) -> float:
+    return (clamp_weight(weight) - 1) / 4
+
+
+def weighted_sample(items: list[tuple[int, float]], k: int) -> list[int]:
+    '''Efraimidis-Spirakis 加权不放回抽样：key = U^(1/w)，取 top-k'''
+    scored = [(random.random() ** (1.0 / max(w, 1e-9)), item_id) for item_id, w in items]
+    scored.sort(reverse=True)
+    return [item_id for _, item_id in scored[:min(k, len(scored))]]
 
 class TrackService:
     def __init__(self, db: DbDep, settings: SettingsDep, request: Request):
@@ -220,7 +256,7 @@ class TrackService:
         track_ids = result.scalars().all()
         return track_ids
     
-    async def get_most_played_tracks(self, limit: int | None = 12):
+    async def get_most_played_tracks(self, limit: int = HOME_TRACK_COUNT):
         '''get user most played tracks'''
         hit_count_subq = (
             select(
@@ -250,7 +286,7 @@ class TrackService:
         tracks = result.scalars().all()
         return tracks
     
-    async def get_latest_added_tracks(self, num: int = 12):
+    async def get_latest_added_tracks(self, num: int = HOME_TRACK_COUNT):
         '''get latest added tracks'''
         stmt = (
             select(Track)
@@ -388,5 +424,179 @@ class TrackService:
             select(TrackHit.played_at)
         )
         return [dt for dt, in result.all()]
+
+    # region 全部曲目 / 高级随机端点（与前端 SW/IDB 同契约）
+    @staticmethod
+    def _brief_options():
+        '''TrackBrief 所需列与关系，避免随机/分页查询整表物化'''
+        return (
+            load_only(Track.id, Track.title, Track.cover_art_hash, Track.duration),
+            selectinload(Track.artists).load_only(Artist.id, Artist.name),
+            joinedload(Track.album).load_only(Album.id, Album.title),
+        )
+
+    def _hit_stats_subq(self):
+        '''当前用户的播放次数与最后播放时间（hot / history 排序共用）'''
+        return (
+            select(
+                TrackHit.track_id,
+                func.count(TrackHit.id).label('hit_count'),
+                func.max(TrackHit.played_at).label('last_hit_at'),
+            )
+            .where(TrackHit.user_id == self.current_user_id)
+            .group_by(TrackHit.track_id)
+            .subquery()
+        )
+
+    async def get_sorted_tracks(self, sort: str, page: int, page_size: int) -> tuple[int, list[Track]]:
+        '''latest=created_at DESC / hot=播放次数 DESC（含 0 次）/ history=最后播放 DESC（仅含播放过）'''
+        stats = self._hit_stats_subq()
+        base = select(Track).outerjoin(stats, Track.id == stats.c.track_id).where(Track.is_deleted == False)
+        count_stmt = (
+            select(func.count(Track.id))
+            .select_from(Track)
+            .outerjoin(stats, Track.id == stats.c.track_id)
+            .where(Track.is_deleted == False)
+        )
+        if sort == 'hot':
+            order_by = (desc(func.coalesce(stats.c.hit_count, 0)), desc(Track.id))
+        elif sort == 'history':
+            base = base.where(stats.c.last_hit_at.is_not(None))
+            count_stmt = count_stmt.where(stats.c.last_hit_at.is_not(None))
+            order_by = (desc(stats.c.last_hit_at), desc(Track.id))
+        else:
+            order_by = (desc(Track.created_at), desc(Track.id))
+
+        total = (await self.db.execute(count_stmt)).scalar_one()
+        offset = (page - 1) * page_size
+        if offset >= total:
+            return total, []
+        stmt = base.order_by(*order_by).offset(offset).limit(page_size).options(*self._brief_options())
+        result = await self.db.execute(stmt)
+        return total, list(result.scalars().all())
+
+    async def get_rnd_fresh_tracks(self, num: int, pool: int) -> list[Track]:
+        '''候选池 = 最近添加的 pool 首，再随机抽 num 首（曲库不足按实际数量）'''
+        ids_stmt = (
+            select(Track.id)
+            .where(Track.is_deleted == False)
+            .order_by(desc(Track.created_at), desc(Track.id))
+            .limit(pool)
+        )
+        ids = list((await self.db.execute(ids_stmt)).scalars().all())
+        if not ids:
+            return []
+        stmt = (
+            select(Track)
+            .where(Track.id.in_(ids))
+            .order_by(func.random())
+            .limit(min(clamp_tracks_num(num), len(ids)))
+            .options(*self._brief_options())
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def get_rnd_artist_scattered_tracks(self, num: int, numpa: int) -> list[Track]:
+        '''洗牌歌手 → 每位随机取 ≤m 首 → 去重填满 n 首'''
+        m = min(SCATTER_M_CAP, max(1, int(numpa)))
+        n = min(SCATTER_N_CAP, max(m + 1, int(num)))
+        artists_stmt = (
+            select(track_artists.c.artist_id)
+            .join(Track, Track.id == track_artists.c.track_id)
+            .where(Track.is_deleted == False)
+            .group_by(track_artists.c.artist_id)
+        )
+        artist_ids = list((await self.db.execute(artists_stmt)).scalars().all())
+        random.shuffle(artist_ids)
+
+        picked_ids: set[int] = set()
+        picked: list[Track] = []
+        for artist_id in artist_ids:
+            if len(picked) >= n:
+                break
+            clauses = [track_artists.c.artist_id == artist_id, Track.is_deleted == False]
+            if picked_ids:
+                clauses.append(~Track.id.in_(picked_ids))
+            stmt = (
+                select(Track)
+                .join(track_artists, Track.id == track_artists.c.track_id)
+                .where(*clauses)
+                .order_by(func.random())
+                .limit(min(m, n - len(picked)))
+                .options(*self._brief_options())
+            )
+            for track in (await self.db.execute(stmt)).scalars().all():
+                if track.id in picked_ids:
+                    continue
+                picked_ids.add(track.id)
+                picked.append(track)
+        return picked
+
+    async def get_rnd_unhit_tracks(self, num: int) -> list[Track]:
+        '''当前用户从未播放过的曲目（TrackHit 无记录）'''
+        hit_ids = select(TrackHit.track_id).where(TrackHit.user_id == self.current_user_id)
+        stmt = (
+            select(Track)
+            .where(Track.is_deleted == False, ~Track.id.in_(hit_ids))
+            .order_by(func.random())
+            .limit(clamp_tracks_num(num))
+            .options(*self._brief_options())
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def get_rnd_weighted_artist_tracks(self, num: int, weight: int) -> list[Track]:
+        '''加权随机歌手（权重 = 曲目数^α），每人随机一首，展平成 Track[]'''
+        counts_stmt = (
+            select(track_artists.c.artist_id, func.count(track_artists.c.track_id).label('track_count'))
+            .join(Track, Track.id == track_artists.c.track_id)
+            .where(Track.is_deleted == False)
+            .group_by(track_artists.c.artist_id)
+        )
+        rows = (await self.db.execute(counts_stmt)).all()
+        alpha = weight_alpha(weight)
+        artist_ids = weighted_sample(
+            [(row.artist_id, max(1, row.track_count) ** alpha) for row in rows],
+            clamp_tracks_num(num),
+        )
+        picked_ids: set[int] = set()
+        picked: list[Track] = []
+        for artist_id in artist_ids:
+            clauses = [track_artists.c.artist_id == artist_id, Track.is_deleted == False]
+            if picked_ids:
+                clauses.append(~Track.id.in_(picked_ids))
+            stmt = (
+                select(Track)
+                .join(track_artists, Track.id == track_artists.c.track_id)
+                .where(*clauses)
+                .order_by(func.random())
+                .limit(1)
+                .options(*self._brief_options())
+            )
+            track = (await self.db.execute(stmt)).scalars().first()
+            if track is not None and track.id not in picked_ids:
+                picked_ids.add(track.id)
+                picked.append(track)
+        return picked
+
+    async def get_rnd_weighted_hit_tracks(self, num: int, weight: int) -> list[Track]:
+        '''加权随机曲目（权重 = (1 + 播放次数)^α），未播放恒为 1，保留加权序'''
+        stats = self._hit_stats_subq()
+        rows_stmt = (
+            select(Track.id, func.coalesce(stats.c.hit_count, 0).label('hit_count'))
+            .select_from(Track)
+            .outerjoin(stats, Track.id == stats.c.track_id)
+            .where(Track.is_deleted == False)
+        )
+        rows = (await self.db.execute(rows_stmt)).all()
+        alpha = weight_alpha(weight)
+        picked_ids = weighted_sample(
+            [(row.id, (1 + row.hit_count) ** alpha) for row in rows],
+            clamp_tracks_num(num),
+        )
+        if not picked_ids:
+            return []
+        stmt = select(Track).where(Track.id.in_(picked_ids)).options(*self._brief_options())
+        by_id = {t.id: t for t in (await self.db.execute(stmt)).scalars().all()}
+        return [by_id[i] for i in picked_ids if i in by_id]
+    # endregion 全部曲目 / 高级随机端点
 
     # endregion frontend use

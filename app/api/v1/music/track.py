@@ -9,15 +9,84 @@
 '''
 
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from app.schemas.common import ResponseModel
-from app.schemas.track import TrackInfoResponse, TrackMoreInfoResponse
+from app.schemas.track import TrackInfoResponse, TrackMoreInfoResponse, TracksPage, TrackSort
 from app.schemas.common import TrackBrief
-from app.services.track_service import TrackService
+from app.services.track_service import (
+    TrackService, HOME_TRACK_COUNT, clamp_tracks_num, normalize_pool,
+)
 from app.core.exceptions import BusinessException
 
 
 router = APIRouter()
+
+# 静态路由统一声明在 /{track_id:int} 之前，避免被动态段抢先匹配
+@router.get('/tracks', response_model=ResponseModel[TracksPage])
+async def get_tracks_by_sort(
+    sort: TrackSort = Query('latest', description='latest | hot | history'),
+    page: int = Query(1, ge=1, description='page number'),
+    page_size: int = Query(20, ge=1, le=100, description='page size'),
+    service: TrackService = Depends(TrackService),
+):
+    '''全部曲目：三种排序 + 稳定次级键 id DESC 的偏移分页'''
+    total, tracks = await service.get_sorted_tracks(sort, page, page_size)
+    return ResponseModel(data=TracksPage(
+        total=total,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+        tracks=[TrackBrief.model_validate(t) for t in tracks],
+    ))
+
+@router.get('/rndfreshtracks', response_model=ResponseModel[list[TrackBrief]])
+async def get_rnd_fresh_tracks(
+    num: int = Query(50, ge=1, le=200),
+    pool: int = Query(500, ge=1, le=10000),
+    service: TrackService = Depends(TrackService),
+):
+    '''新鲜模式：最近添加的 pool 首为候选池，随机取 num 首；pool 夹到 100~1000 并按 100 取整'''
+    tracks = await service.get_rnd_fresh_tracks(clamp_tracks_num(num), normalize_pool(pool))
+    return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
+
+@router.get('/rndartisttracks', response_model=ResponseModel[list[TrackBrief]])
+async def get_rnd_artist_tracks(
+    num: int = Query(50, ge=1, le=200),
+    numpa: int = Query(1, ge=1, le=20),
+    service: TrackService = Depends(TrackService),
+):
+    '''随机歌手散布取歌：每位歌手 ≤ numpa 首，跨歌手去重，总量 num'''
+    tracks = await service.get_rnd_artist_scattered_tracks(num, numpa)
+    return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
+
+@router.get('/rndunhittracks', response_model=ResponseModel[list[TrackBrief]])
+async def get_rnd_unhit_tracks(
+    num: int = Query(50, ge=1, le=200),
+    service: TrackService = Depends(TrackService),
+):
+    '''随机取当前用户从未播放过的曲目'''
+    tracks = await service.get_rnd_unhit_tracks(num)
+    return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
+
+@router.get('/rndwgttracks', response_model=ResponseModel[list[TrackBrief]])
+async def get_rnd_weighted_artist_tracks(
+    num: int = Query(50, ge=1, le=200),
+    weight: int = Query(5, ge=1, le=20),
+    service: TrackService = Depends(TrackService),
+):
+    '''按曲目数加权随机歌手，每人一首，展平为 Track[]（与本地 IDB 同形状）'''
+    tracks = await service.get_rnd_weighted_artist_tracks(num, weight)
+    return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
+
+@router.get('/rndhitswgttracks', response_model=ResponseModel[list[TrackBrief]])
+async def get_rnd_hits_weighted_tracks(
+    num: int = Query(50, ge=1, le=200),
+    weight: int = Query(5, ge=1, le=20),
+    service: TrackService = Depends(TrackService),
+):
+    '''按 (1 + 播放次数)^α 加权随机曲目，未播放曲目恒有机会'''
+    tracks = await service.get_rnd_weighted_hit_tracks(num, weight)
+    return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
 
 @router.get('/signed-url/{track_id:int}', response_model=ResponseModel[str])
 async def get_signed_url(track_id: int, service: TrackService = Depends(TrackService)):
@@ -66,12 +135,18 @@ async def get_favorite_track_ids(num: int = 100, service: TrackService = Depends
     return ResponseModel(data=track_ids)
 
 @router.get('/latesttracks', response_model=ResponseModel[list[TrackBrief]])
-async def get_latest_added_tracks(num: int = 12, service: TrackService = Depends(TrackService)):
+async def get_latest_added_tracks(
+    num: int = Query(HOME_TRACK_COUNT, ge=1, le=100),
+    service: TrackService = Depends(TrackService),
+):
     tracks = await service.get_latest_added_tracks(num)
     return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
 
 @router.get('/mostplayedtracks', response_model=ResponseModel[list[TrackBrief]])
-async def get_most_played_tracks(num: int | None = 12, service: TrackService = Depends(TrackService)):
+async def get_most_played_tracks(
+    num: int = Query(HOME_TRACK_COUNT, ge=1, le=100),
+    service: TrackService = Depends(TrackService),
+):
     tracks = await service.get_most_played_tracks(num)
     return ResponseModel(data=[TrackBrief.model_validate(t) for t in tracks])
 

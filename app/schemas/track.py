@@ -10,10 +10,21 @@
 
 
 from datetime import datetime
-from typing import Any
-from pydantic import model_validator
+from typing import Any, Literal
+from pydantic import BaseModel, model_validator
 from app.models.track import Track
-from .common import TrackBase, TrackMedium, AlbumBase
+from .common import TrackBase, TrackMedium, TrackBrief, AlbumBase
+
+# 三种排序与前端 Tracks.vue / SW 的 SORT_INDEX 共用同一组取值
+TrackSort = Literal['latest', 'hot', 'history']
+
+class TracksPage(BaseModel):
+    '''全部曲目分页响应：与前端 ambient TracksPage 逐字段对齐'''
+    total: int
+    page: int
+    page_size: int
+    sort: TrackSort
+    tracks: list[TrackBrief]
 
 class TrackInfoResponse(TrackMedium):
     album: AlbumBase
